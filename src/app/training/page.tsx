@@ -1,9 +1,10 @@
 import { TrainingForm } from './training-form';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { PageHeader } from '@/components/page-header';
 
 export default function TrainingPage() {
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle className="font-headline text-2xl">Custom Model Training</CardTitle>

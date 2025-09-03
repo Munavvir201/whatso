@@ -22,7 +22,7 @@ export default function RootLayoutClient({
     const router = useRouter();
     const { user, loading, logout } = useAuth();
     
-    const isDashboard = pathname.startsWith('/dashboard');
+    const isDashboard = pathname.startsWith('/dashboard') || pathname.startsWith('/training') || pathname.startsWith('/webhooks') || pathname.startsWith('/settings');
     const isAuthPage = pathname === '/login' || pathname === '/signup';
 
     useEffect(() => {
