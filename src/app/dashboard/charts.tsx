@@ -3,25 +3,42 @@
 import { AreaChart as RechartsAreaChart, BarChart as RechartsBarChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart"
 import { Skeleton } from "@/components/ui/skeleton"
+import React from "react"
 
-// This data is now a placeholder. In a real app, you'd fetch this from Firestore.
-const barChartData = [
-  { month: "January", conversations: 186 },
-  { month: "February", conversations: 305 },
-  { month: "March", conversations: 237 },
-  { month: "April", conversations: 273 },
-  { month: "May", conversations: 209 },
-  { month: "June", conversations: 214 },
-]
+// In a real app, you'd fetch this from Firestore. We'll simulate that with a hook.
+const useChartData = () => {
+  const [barChartData, setBarChartData] = React.useState<any[]>([]);
+  const [areaChartData, setAreaChartData] = React.useState<any[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
 
-const areaChartData = [
-  { date: "2024-01-01", score: 88 },
-  { date: "2024-02-01", score: 89 },
-  { date: "2024-03-01", score: 91 },
-  { date: "2024-04-01", score: 90 },
-  { date: "2024-05-01", score: 92 },
-  { date: "2024-06-01", score: 93 },
-]
+  React.useEffect(() => {
+    // Simulate fetching data from Firestore
+    const timer = setTimeout(() => {
+      setBarChartData([
+        { month: "January", conversations: 186 },
+        { month: "February", conversations: 305 },
+        { month: "March", conversations: 237 },
+        { month: "April", conversations: 273 },
+        { month: "May", conversations: 209 },
+        { month: "June", conversations: 214 },
+      ]);
+      setAreaChartData([
+        { date: "2024-01-01", score: 88 },
+        { date: "2024-02-01", score: 89 },
+        { date: "2024-03-01", score: 91 },
+        { date: "2024-04-01", score: 90 },
+        { date: "2024-05-01", score: 92 },
+        { date: "2024-06-01", score: 93 },
+      ]);
+      setIsLoading(false);
+    }, 1000); // Simulate network delay
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  return { barChartData, areaChartData, isLoading };
+}
+
 
 const chartConfig = {
   conversations: {
@@ -35,7 +52,7 @@ const chartConfig = {
 }
 
 export function BarChart() {
-  const isLoading = false; // In a real app, this would come from your data fetching hook
+  const { barChartData, isLoading } = useChartData();
 
   if (isLoading) {
     return <Skeleton className="h-[300px] w-full" />
@@ -62,7 +79,7 @@ export function BarChart() {
 }
 
 export function AreaChart() {
-    const isLoading = false; // In a real app, this would come from your data fetching hook
+  const { areaChartData, isLoading } = useChartData();
 
     if (isLoading) {
       return <Skeleton className="h-[300px] w-full" />

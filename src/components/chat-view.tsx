@@ -1,22 +1,59 @@
+"use client";
+
+import React, { useEffect, useState } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card"
+import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Bot, Send } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Skeleton } from './ui/skeleton';
+import { db } from '@/lib/firebase';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 
-const messages = [
-  { id: 1, sender: 'user', content: 'Hey, I have a question about my order #12345.', timestamp: '10:30 AM' },
-  { id: 2, sender: 'ai', content: 'Hello! I can help with that. What is your question regarding order #12345?', timestamp: '10:31 AM' },
-  { id: 3, sender: 'user', content: 'I need to know the estimated delivery date.', timestamp: '10:32 AM' },
-  { id: 4, sender: 'ai', content: 'Of course. Let me check... The estimated delivery date for your order is this Friday, between 9 AM and 5 PM.', timestamp: '10:32 AM' },
-  { id: 5, sender: 'user', content: 'Great, thanks for the quick response!', timestamp: '10:33 AM' },
-];
+interface Message {
+  id: string;
+  sender: 'user' | 'ai';
+  content: string;
+  timestamp: string;
+}
+
+const useChatMessages = (chatId: string) => {
+    const [messages, setMessages] = useState<Message[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        // In a real app, you'd unsubscribe from the listener on cleanup
+        if (!chatId) return;
+
+        const fetchMessages = async () => {
+            setIsLoading(true);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            setMessages([
+                { id: '1', sender: 'user', content: 'Hey, I have a question about my order #12345.', timestamp: '10:30 AM' },
+                { id: '2', sender: 'ai', content: 'Hello! I can help with that. What is your question regarding order #12345?', timestamp: '10:31 AM' },
+                { id: '3', sender: 'user', content: 'I need to know the estimated delivery date.', timestamp: '10:32 AM' },
+                { id: '4', sender: 'ai', content: 'Of course. Let me check... The estimated delivery date for your order is this Friday, between 9 AM and 5 PM.', timestamp: '10:32 AM' },
+                { id: '5', sender: 'user', content: 'Great, thanks for the quick response!', timestamp: '10:33 AM' },
+            ]);
+            setIsLoading(false);
+        }
+
+        fetchMessages();
+        
+    }, [chatId]);
+
+    return { messages, isLoading };
+};
 
 export function ChatView() {
+    // In a real app, the activeChatId would come from component props or a global state.
+    const activeChatId = '1'; 
+    const { messages, isLoading } = useChatMessages(activeChatId);
+
   return (
     <div className="flex flex-col h-full bg-background">
       <CardHeader className="flex flex-row items-center justify-between border-b p-4">
@@ -43,22 +80,31 @@ export function ChatView() {
       </CardHeader>
       <CardContent className="flex-1 p-0">
         <ScrollArea className="h-[calc(100vh-20rem)] p-6">
-            <div className="space-y-6">
-                {messages.map((message) => (
-                    <div
-                        key={message.id}
-                        className={cn(
-                            "flex w-max max-w-[75%] flex-col gap-2 rounded-lg px-4 py-3 text-sm",
-                            message.sender === 'user' ? "ml-auto bg-primary text-primary-foreground" : "bg-muted"
-                        )}
-                    >
-                        {message.content}
-                        <span className={cn("text-xs self-end", message.sender === 'user' ? 'text-primary-foreground/70' : 'text-muted-foreground')}>
-                            {message.timestamp}
-                        </span>
-                    </div>
-                ))}
-            </div>
+            {isLoading ? (
+                <div className="space-y-4">
+                    <Skeleton className="h-16 w-3/4 ml-auto rounded-lg" />
+                    <Skeleton className="h-20 w-3/4 rounded-lg" />
+                    <Skeleton className="h-12 w-1/2 ml-auto rounded-lg" />
+                    <Skeleton className="h-24 w-4/5 rounded-lg" />
+                </div>
+            ) : (
+                <div className="space-y-6">
+                    {messages.map((message) => (
+                        <div
+                            key={message.id}
+                            className={cn(
+                                "flex w-max max-w-[75%] flex-col gap-2 rounded-lg px-4 py-3 text-sm",
+                                message.sender === 'user' ? "ml-auto bg-primary text-primary-foreground" : "bg-muted"
+                            )}
+                        >
+                            {message.content}
+                            <span className={cn("text-xs self-end", message.sender === 'user' ? 'text-primary-foreground/70' : 'text-muted-foreground')}>
+                                {message.timestamp}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
         </ScrollArea>
       </CardContent>
       <CardFooter className="p-4 border-t">

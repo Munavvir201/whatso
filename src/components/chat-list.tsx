@@ -1,3 +1,6 @@
+"use client";
+
+import React, { useEffect, useState } from 'react';
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -5,22 +8,49 @@ import { Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Badge } from "./ui/badge"
 import { Skeleton } from "./ui/skeleton"
+import { collection, getDocs, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
-// This is a placeholder. In a real app, you'd fetch this from Firestore
-// and have a proper type definition.
-const chats = [
-  { id: '1', name: 'John Doe', avatar: 'https://picsum.photos/seed/p1/40/40', message: 'Hey, I have a question about my order.', time: '10:30 AM', unread: 2, active: true, ai_hint: 'man portrait' },
-  { id: '2', name: 'Alice Smith', avatar: 'https://picsum.photos/seed/p2/40/40', message: 'Perfect, thank you!', time: '10:25 AM', unread: 0, active: false, ai_hint: 'woman face' },
-  { id: '3', name: 'Bob Johnson', avatar: 'https://picsum.photos/seed/p3/40/40', message: 'Can you help me with a return?', time: '9:15 AM', unread: 0, active: false, ai_hint: 'person glasses' },
-  { id: '4', name: 'Emily White', avatar: 'https://picsum.photos/seed/p4/40/40', message: 'I need to update my shipping address.', time: 'Yesterday', unread: 5, active: false, ai_hint: 'woman smiling' },
-  { id: '5', name: 'Michael Brown', avatar: 'https://picsum.photos/seed/p5/40/40', message: 'What are your business hours?', time: 'Yesterday', unread: 0, active: false, ai_hint: 'man smiling' },
-  { id: '6', name: 'Sarah Green', avatar: 'https://picsum.photos/seed/p6/40/40', message: 'Is this item in stock?', time: '2 days ago', unread: 0, active: false, ai_hint: 'woman nature' },
-  { id: '7', name: 'David Black', avatar: 'https://picsum.photos/seed/p7/40/40', message: 'I received a damaged product.', time: '3 days ago', unread: 0, active: false, ai_hint: 'person serious' },
-];
+interface Chat {
+  id: string;
+  name: string;
+  avatar: string;
+  message: string;
+  time: string;
+  unread: number;
+  active: boolean;
+  ai_hint: string;
+}
+
+const useChatList = () => {
+    const [chats, setChats] = useState<Chat[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchChats = async () => {
+            setIsLoading(true);
+            // In a real app, you would fetch this from Firestore.
+            // For now, we simulate this fetch.
+            await new Promise(resolve => setTimeout(resolve, 1000));
+             setChats([
+                { id: '1', name: 'John Doe', avatar: 'https://picsum.photos/seed/p1/40/40', message: 'Hey, I have a question about my order.', time: '10:30 AM', unread: 2, active: true, ai_hint: 'man portrait' },
+                { id: '2', name: 'Alice Smith', avatar: 'https://picsum.photos/seed/p2/40/40', message: 'Perfect, thank you!', time: '10:25 AM', unread: 0, active: false, ai_hint: 'woman face' },
+                { id: '3', name: 'Bob Johnson', avatar: 'https://picsum.photos/seed/p3/40/40', message: 'Can you help me with a return?', time: '9:15 AM', unread: 0, active: false, ai_hint: 'person glasses' },
+                { id: '4', name: 'Emily White', avatar: 'https://picsum.photos/seed/p4/40/40', message: 'I need to update my shipping address.', time: 'Yesterday', unread: 5, active: false, ai_hint: 'woman smiling' },
+                { id: '5', name: 'Michael Brown', avatar: 'https://picsum.photos/seed/p5/40/40', message: 'What are your business hours?', time: 'Yesterday', unread: 0, active: false, ai_hint: 'man smiling' },
+                { id: '6', name: 'Sarah Green', avatar: 'https://picsum.photos/seed/p6/40/40', message: 'Is this item in stock?', time: '2 days ago', unread: 0, active: false, ai_hint: 'woman nature' },
+                { id: '7', name: 'David Black', avatar: 'https://picsum.photos/seed/p7/40/40', message: 'I received a damaged product.', time: '3 days ago', unread: 0, active: false, ai_hint: 'person serious' },
+              ]);
+            setIsLoading(false);
+        };
+        fetchChats();
+    }, []);
+
+    return { chats, isLoading };
+};
 
 export function ChatList() {
-  // In a real app, you would use a hook to fetch chat data and manage loading state.
-  const isLoading = false;
+  const { chats, isLoading } = useChatList();
   
   return (
     <div className="border-r bg-card flex flex-col">
