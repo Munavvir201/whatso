@@ -8,14 +8,14 @@ const setupSteps = [
         icon: KeyRound,
         title: "Connect WhatsApp API",
         description: "Link your WhatsApp Business account to start automating conversations.",
-        href: "#",
+        href: "/settings/whatsapp",
         cta: "Connect",
     },
     {
         icon: Bot,
         title: "Configure Your AI",
         description: "Add your AI provider API key to bring your chatbot to life.",
-        href: "#",
+        href: "/settings",
         cta: "Configure",
     },
     {

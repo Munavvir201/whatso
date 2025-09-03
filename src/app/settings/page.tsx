@@ -1,6 +1,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WelcomeMessageForm } from "./welcome-message-form";
 import { Card, CardDescription, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { WhatsappForm } from "./whatsapp-form";
 
 export default function SettingsPage() {
   return (
@@ -12,6 +13,7 @@ export default function SettingsPage() {
       <Tabs defaultValue="welcome" className="w-full">
         <TabsList>
           <TabsTrigger value="welcome">Welcome Message</TabsTrigger>
+          <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
           <TabsTrigger value="profile" disabled>Profile</TabsTrigger>
           <TabsTrigger value="billing" disabled>Billing</TabsTrigger>
           <TabsTrigger value="advanced" disabled>Advanced</TabsTrigger>
@@ -26,6 +28,19 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent>
                 <WelcomeMessageForm />
+            </CardContent>
+          </Card>
+        </TabsContent>
+         <TabsContent value="whatsapp">
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-headline">WhatsApp API Settings</CardTitle>
+              <CardDescription>
+                Connect your WhatsApp Business Account to enable message automation.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+                <WhatsappForm />
             </CardContent>
           </Card>
         </TabsContent>
