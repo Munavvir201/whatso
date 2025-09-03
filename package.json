@@ -10,7 +10,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "build":  "next-on-pages",
-    "deploy": "wrangler deploy"
+    "preview:worker": "npm run build && wrangler pages dev",
+    "deploy:worker": "npm run build && wrangler pages deploy"
   },
   "dependencies": {
     "@genkit-ai/googleai": "^1.14.1",
