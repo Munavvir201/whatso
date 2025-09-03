@@ -26,10 +26,10 @@ export default function LandingPage() {
           </nav>
           <div className="ml-auto lg:ml-4 flex items-center gap-2">
               <Button variant="ghost" asChild>
-                  <Link href="/dashboard/chat">Sign In</Link>
+                  <Link href="/login">Sign In</Link>
               </Button>
               <Button asChild className="bg-accent hover:bg-accent/90 text-accent-foreground">
-                  <Link href="/dashboard/chat">Get Started</Link>
+                  <Link href="/signup">Get Started</Link>
               </Button>
           </div>
         </div>
@@ -49,7 +49,7 @@ export default function LandingPage() {
                 </div>
                 <div className="flex flex-col gap-2 min-[400px]:flex-row">
                   <Button asChild size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground">
-                    <Link href="/dashboard/chat">
+                    <Link href="/signup">
                       Try WhatsO Free
                     </Link>
                   </Button>
@@ -179,7 +179,7 @@ export default function LandingPage() {
                         <li className="flex items-center gap-2"><CheckCircle className="text-accent h-4 w-4"/>Priority Support</li>
                     </ul>
                     <Button asChild className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
-                        <Link href="/dashboard/chat">Get Started with Pro</Link>
+                        <Link href="/signup">Get Started with Pro</Link>
                     </Button>
                 </CardContent>
               </Card>
@@ -221,7 +221,7 @@ export default function LandingPage() {
                         <ul className="space-y-1">
                             <li><Link href="#features" className="text-sm text-muted-foreground hover:text-foreground">Features</Link></li>
                              <li><Link href="#pricing" className="text-sm text-muted-foreground hover:text-foreground">Pricing</Link></li>
-                              <li><Link href="/dashboard/chat" className="text-sm text-muted-foreground hover:text-foreground">Sign In</Link></li>
+                              <li><Link href="/login" className="text-sm text-muted-foreground hover:text-foreground">Sign In</Link></li>
                         </ul>
                     </div>
                      <div className="space-y-2">
