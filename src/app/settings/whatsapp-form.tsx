@@ -17,6 +17,9 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { db } from "@/lib/firebase";
+import { doc, setDoc } from "firebase/firestore";
 
 const formSchema = z.object({
     phoneNumberId: z.string().min(1, { message: "Phone Number ID is required." }),
@@ -26,6 +29,7 @@ const formSchema = z.object({
 
 export function WhatsappForm() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -38,18 +42,39 @@ export function WhatsappForm() {
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    if (!user) {
+        toast({
+            variant: "destructive",
+            title: "Authentication Error",
+            description: "You must be logged in to save settings.",
+        });
+        return;
+    }
+
     setIsLoading(true);
-    // Here you would typically send these values to your backend to be stored securely
-    console.log(values);
+    try {
+        // Create a reference to the user's specific settings document
+        const userSettingsRef = doc(db, "userSettings", user.uid);
 
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
+        // Save the WhatsApp credentials to this document
+        await setDoc(userSettingsRef, { 
+            whatsapp: values 
+        }, { merge: true });
 
-    setIsLoading(false);
-    toast({
-      title: "Settings Saved!",
-      description: "Your WhatsApp API credentials have been saved successfully.",
-    });
+        toast({
+            title: "Settings Saved!",
+            description: "Your WhatsApp API credentials have been saved securely.",
+        });
+
+    } catch (error: any) {
+         toast({
+            variant: "destructive",
+            title: "Error Saving Settings",
+            description: error.message || "An unexpected error occurred.",
+        });
+    } finally {
+        setIsLoading(false);
+    }
   }
 
   return (
