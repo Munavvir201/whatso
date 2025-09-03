@@ -52,36 +52,60 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
     const { userId } = params;
     const body = await req.json();
 
+    // Log the incoming webhook body for debugging
+    console.log('WhatsApp webhook received:', JSON.stringify(body, null, 2));
+
     // Basic validation of the incoming payload
     if (body.object !== 'whatsapp_business_account') {
-        return NextResponse.json({ status: 'not a whatsapp message' });
+        console.log('Not a WhatsApp business account message');
+        return NextResponse.json({ status: 'not a whatsapp message' }, { status: 200 });
     }
     
     const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
 
     if (!message) {
-      return NextResponse.json({ status: 'no message found' });
+        console.log('No message found in webhook payload');
+        return NextResponse.json({ status: 'no message found' }, { status: 200 });
     }
 
-    // Fetch user credentials
-    const userSettingsRef = db.collection('userSettings').doc(userId);
-    const docSnap = await userSettingsRef.get();
+    // Return 200 quickly as requested, then process asynchronously
+    const response = NextResponse.json({ status: 'ok' }, { status: 200 });
 
-    if (!docSnap.exists) {
-        console.error(`Settings not found for user ${userId}. Cannot process message.`);
-        return NextResponse.json({ error: 'Configuration not found' }, { status: 500 });
-    }
-    const whatsappSettings = docSnap.data()?.whatsapp;
+    // Process the message asynchronously (don't await)
+    processMessageAsync(userId, message, body);
 
-    if (!whatsappSettings?.phoneNumberId || !whatsappSettings?.accessToken) {
-        console.error(`Missing WhatsApp credentials for user ${userId}.`);
-        return NextResponse.json({ error: 'Credentials not configured' }, { status: 500 });
-    }
+    return response;
+}
 
-    // TODO: In a real app, you would store and retrieve conversation history
-    const conversationHistory = "User: " + message.text.body;
-
+/**
+ * Process WhatsApp message asynchronously
+ */
+async function processMessageAsync(userId: string, message: any, body: any) {
     try {
+        // Fetch user credentials
+        const userSettingsRef = db.collection('userSettings').doc(userId);
+        const docSnap = await userSettingsRef.get();
+
+        if (!docSnap.exists) {
+            console.error(`Settings not found for user ${userId}. Cannot process message.`);
+            return;
+        }
+        const whatsappSettings = docSnap.data()?.whatsapp;
+
+        if (!whatsappSettings?.phoneNumberId || !whatsappSettings?.accessToken) {
+            console.error(`Missing WhatsApp credentials for user ${userId}.`);
+            return;
+        }
+
+        // Only process text messages for now
+        if (!message.text?.body) {
+            console.log('Message is not a text message, skipping AI processing');
+            return;
+        }
+
+        // TODO: In a real app, you would store and retrieve conversation history
+        const conversationHistory = "User: " + message.text.body;
+
         // Get AI response
         const aiResponse = await automateWhatsAppChat({
             message: message.text.body,
@@ -102,10 +126,9 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
             }),
         });
 
-        return NextResponse.json({ status: 'ok' });
+        console.log('Successfully sent AI response to WhatsApp user');
 
     } catch (error) {
         console.error("Error processing message and sending reply:", error);
-        return NextResponse.json({ error: 'Failed to process message' }, { status: 500 });
     }
 }
