@@ -71,9 +71,9 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
         console.error(`Settings not found for user ${userId}. Cannot process message.`);
         return NextResponse.json({ error: 'Configuration not found' }, { status: 500 });
     }
-    const { phoneNumberId, accessToken } = docSnap.data()?.whatsapp;
+    const whatsappSettings = docSnap.data()?.whatsapp;
 
-    if (!phoneNumberId || !accessToken) {
+    if (!whatsappSettings?.phoneNumberId || !whatsappSettings?.accessToken) {
         console.error(`Missing WhatsApp credentials for user ${userId}.`);
         return NextResponse.json({ error: 'Credentials not configured' }, { status: 500 });
     }
@@ -89,10 +89,10 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
         });
 
         // Send the AI response back to the user via WhatsApp API
-        await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
+        await fetch(`https://graph.facebook.com/v20.0/${whatsappSettings.phoneNumberId}/messages`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${accessToken}`,
+                'Authorization': `Bearer ${whatsappSettings.accessToken}`,
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
