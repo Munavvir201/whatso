@@ -1,6 +1,5 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/firebase-admin'; // Using admin SDK for backend operations
 import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
 
 // NOTE: You must configure the Firebase Admin SDK for this to work.
@@ -37,6 +36,16 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
           status: 200, 
           headers: { 'Content-Type': 'text/plain' } 
         });
+      }
+
+      // Try to get Firebase Admin SDK
+      let db;
+      try {
+        const { db: firebaseDb } = await import('@/lib/firebase-admin');
+        db = firebaseDb;
+      } catch (firebaseError) {
+        console.error('Firebase Admin SDK not available:', firebaseError);
+        return NextResponse.json({ error: 'Firebase not configured' }, { status: 500 });
       }
 
       // Get user's webhook secret from Firebase
@@ -140,6 +149,16 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
  */
 async function processMessageAsync(userId: string, message: any, body: any) {
     try {
+        // Try to get Firebase Admin SDK
+        let db;
+        try {
+            const { db: firebaseDb } = await import('@/lib/firebase-admin');
+            db = firebaseDb;
+        } catch (firebaseError) {
+            console.error('Firebase Admin SDK not available for message processing:', firebaseError);
+            return;
+        }
+
         // Fetch user credentials
         const userSettingsRef = db.collection('userSettings').doc(userId);
         const docSnap = await userSettingsRef.get();
