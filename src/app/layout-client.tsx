@@ -14,7 +14,7 @@ export default function RootLayoutClient({
   }>) {
 
     const pathname = usePathname();
-    const isDashboard = pathname.startsWith('/dashboard');
+    const isDashboard = pathname.startsWith('/dashboard') || pathname === '/training' || pathname === '/webhooks' || pathname === '/settings';
 
     if (!isDashboard) {
         return <>{children}</>;

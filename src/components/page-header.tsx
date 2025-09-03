@@ -2,7 +2,6 @@
 
 import { usePathname } from 'next/navigation';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import Link from 'next/link';
 
 const titles: { [key: string]: string } = {
   '/dashboard': 'Dashboard',
@@ -16,7 +15,7 @@ export function PageHeader() {
   const pathname = usePathname();
   const title = titles[pathname] || 'WhatsO';
 
-  const isDashboard = pathname.startsWith('/dashboard');
+  const isDashboard = pathname.startsWith('/dashboard') || pathname === '/training' || pathname === '/webhooks' || pathname === '/settings';
 
   if (!isDashboard) {
     return null;
