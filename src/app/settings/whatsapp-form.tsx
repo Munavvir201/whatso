@@ -17,7 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { Loader2 } from "lucide-react";
+import { Copy, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { db } from "@/lib/firebase";
 import { doc, setDoc, getDoc } from "firebase/firestore";
@@ -40,6 +40,7 @@ export function WhatsappForm() {
   const [isFetching, setIsFetching] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [savedCredentials, setSavedCredentials] = useState<WhatsappFormData | null>(null);
+  const [webhookUrl, setWebhookUrl] = useState("");
 
   const form = useForm<WhatsappFormData>({
     resolver: zodResolver(formSchema),
@@ -56,6 +57,10 @@ export function WhatsappForm() {
         setIsFetching(false);
         return;
       };
+
+      if (window.location.origin) {
+        setWebhookUrl(`${window.location.origin}/api/webhooks/whatsapp/${user.uid}`);
+      }
 
       setIsFetching(true);
       const userSettingsRef = doc(db, "userSettings", user.uid);
@@ -106,6 +111,14 @@ export function WhatsappForm() {
         setIsLoading(false);
     }
   }
+  
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(webhookUrl).then(() => {
+        toast({ title: "Copied!", description: "Webhook URL copied to clipboard."});
+    }, (err) => {
+        toast({ variant: "destructive", title: "Failed to copy", description: "Could not copy URL to clipboard."});
+    });
+  }
 
   if (isFetching) {
     return (
@@ -113,17 +126,14 @@ export function WhatsappForm() {
             <div className="space-y-2">
                 <Skeleton className="h-4 w-1/4" />
                 <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-4 w-1/2" />
             </div>
              <div className="space-y-2">
                 <Skeleton className="h-4 w-1/4" />
                 <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-4 w-1/2" />
             </div>
              <div className="space-y-2">
                 <Skeleton className="h-4 w-1/4" />
                 <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-4 w-1/2" />
             </div>
             <Skeleton className="h-10 w-32" />
         </div>
@@ -132,10 +142,18 @@ export function WhatsappForm() {
 
   if (savedCredentials && !isEditing) {
     return (
-        <div className="space-y-4">
+        <div className="space-y-6">
             <div>
                 <Label>Your Phone Number ID</Label>
                 <p className="text-muted-foreground text-sm mt-1 font-mono bg-muted p-2 rounded-md">{savedCredentials.phoneNumberId}</p>
+            </div>
+             <div>
+                <Label>Your Webhook URL</Label>
+                 <div className="flex items-center space-x-2">
+                    <Input readOnly value={webhookUrl} className="font-mono" />
+                    <Button variant="outline" size="icon" onClick={copyToClipboard}><Copy className="h-4 w-4" /></Button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Paste this in your Meta for Developers app webhook configuration.</p>
             </div>
             <Button onClick={() => setIsEditing(true)}>Edit Credentials</Button>
         </div>
@@ -145,6 +163,16 @@ export function WhatsappForm() {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        {webhookUrl && (
+             <div>
+                <Label>Your Webhook URL</Label>
+                 <div className="flex items-center space-x-2">
+                    <Input readOnly value={webhookUrl} className="font-mono" />
+                    <Button variant="outline" size="icon" onClick={copyToClipboard}><Copy className="h-4 w-4" /></Button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Paste this in your Meta for Developers app webhook configuration.</p>
+            </div>
+        )}
         <FormField
           control={form.control}
           name="phoneNumberId"
@@ -206,3 +234,4 @@ export function WhatsappForm() {
     </Form>
   );
 }
+
