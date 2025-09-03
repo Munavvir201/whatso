@@ -1,6 +1,6 @@
 "use client"
 
-import { Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+import { AreaChart as RechartsAreaChart, BarChart as RechartsBarChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart"
 
 const barChartData = [
@@ -36,7 +36,7 @@ export function BarChart() {
   return (
     <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
       <ResponsiveContainer width="100%" height={300}>
-        <Bar.Chart data={barChartData}>
+        <RechartsBarChart data={barChartData}>
           <CartesianGrid vertical={false} />
           <XAxis
             dataKey="month"
@@ -47,7 +47,7 @@ export function BarChart() {
           <YAxis />
           <Tooltip content={<ChartTooltipContent />} />
           <Bar dataKey="conversations" fill="var(--color-conversations)" radius={4} />
-        </Bar.Chart>
+        </RechartsBarChart>
       </ResponsiveContainer>
     </ChartContainer>
   )
@@ -57,7 +57,7 @@ export function AreaChart() {
   return (
     <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
       <ResponsiveContainer width="100%" height={300}>
-        <Area.Chart data={areaChartData}>
+        <RechartsAreaChart data={areaChartData}>
           <CartesianGrid vertical={false} />
           <XAxis 
             dataKey="date" 
@@ -75,7 +75,7 @@ export function AreaChart() {
             </linearGradient>
           </defs>
           <Area type="monotone" dataKey="score" stroke="hsl(var(--accent))" fill="url(#colorScore)" strokeWidth={2} />
-        </Area.Chart>
+        </RechartsAreaChart>
       </ResponsiveContainer>
     </ChartContainer>
   )
