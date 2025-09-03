@@ -2,7 +2,9 @@
 
 import { AreaChart as RechartsAreaChart, BarChart as RechartsBarChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart"
+import { Skeleton } from "@/components/ui/skeleton"
 
+// This data is now a placeholder. In a real app, you'd fetch this from Firestore.
 const barChartData = [
   { month: "January", conversations: 186 },
   { month: "February", conversations: 305 },
@@ -33,6 +35,12 @@ const chartConfig = {
 }
 
 export function BarChart() {
+  const isLoading = false; // In a real app, this would come from your data fetching hook
+
+  if (isLoading) {
+    return <Skeleton className="h-[300px] w-full" />
+  }
+
   return (
     <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
       <ResponsiveContainer width="100%" height={300}>
@@ -54,6 +62,12 @@ export function BarChart() {
 }
 
 export function AreaChart() {
+    const isLoading = false; // In a real app, this would come from your data fetching hook
+
+    if (isLoading) {
+      return <Skeleton className="h-[300px] w-full" />
+    }
+
   return (
     <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
       <ResponsiveContainer width="100%" height={300}>

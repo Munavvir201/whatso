@@ -4,18 +4,24 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Badge } from "./ui/badge"
+import { Skeleton } from "./ui/skeleton"
 
+// This is a placeholder. In a real app, you'd fetch this from Firestore
+// and have a proper type definition.
 const chats = [
-  { id: 1, name: 'John Doe', avatar: 'https://picsum.photos/seed/p1/40/40', message: 'Hey, I have a question about my order.', time: '10:30 AM', unread: 2, active: true, ai_hint: 'man portrait' },
-  { id: 2, name: 'Alice Smith', avatar: 'https://picsum.photos/seed/p2/40/40', message: 'Perfect, thank you!', time: '10:25 AM', unread: 0, active: false, ai_hint: 'woman face' },
-  { id: 3, name: 'Bob Johnson', avatar: 'https://picsum.photos/seed/p3/40/40', message: 'Can you help me with a return?', time: '9:15 AM', unread: 0, active: false, ai_hint: 'person glasses' },
-  { id: 4, name: 'Emily White', avatar: 'https://picsum.photos/seed/p4/40/40', message: 'I need to update my shipping address.', time: 'Yesterday', unread: 5, active: false, ai_hint: 'woman smiling' },
-  { id: 5, name: 'Michael Brown', avatar: 'https://picsum.photos/seed/p5/40/40', message: 'What are your business hours?', time: 'Yesterday', unread: 0, active: false, ai_hint: 'man smiling' },
-  { id: 6, name: 'Sarah Green', avatar: 'https://picsum.photos/seed/p6/40/40', message: 'Is this item in stock?', time: '2 days ago', unread: 0, active: false, ai_hint: 'woman nature' },
-  { id: 7, name: 'David Black', avatar: 'https://picsum.photos/seed/p7/40/40', message: 'I received a damaged product.', time: '3 days ago', unread: 0, active: false, ai_hint: 'person serious' },
+  { id: '1', name: 'John Doe', avatar: 'https://picsum.photos/seed/p1/40/40', message: 'Hey, I have a question about my order.', time: '10:30 AM', unread: 2, active: true, ai_hint: 'man portrait' },
+  { id: '2', name: 'Alice Smith', avatar: 'https://picsum.photos/seed/p2/40/40', message: 'Perfect, thank you!', time: '10:25 AM', unread: 0, active: false, ai_hint: 'woman face' },
+  { id: '3', name: 'Bob Johnson', avatar: 'https://picsum.photos/seed/p3/40/40', message: 'Can you help me with a return?', time: '9:15 AM', unread: 0, active: false, ai_hint: 'person glasses' },
+  { id: '4', name: 'Emily White', avatar: 'https://picsum.photos/seed/p4/40/40', message: 'I need to update my shipping address.', time: 'Yesterday', unread: 5, active: false, ai_hint: 'woman smiling' },
+  { id: '5', name: 'Michael Brown', avatar: 'https://picsum.photos/seed/p5/40/40', message: 'What are your business hours?', time: 'Yesterday', unread: 0, active: false, ai_hint: 'man smiling' },
+  { id: '6', name: 'Sarah Green', avatar: 'https://picsum.photos/seed/p6/40/40', message: 'Is this item in stock?', time: '2 days ago', unread: 0, active: false, ai_hint: 'woman nature' },
+  { id: '7', name: 'David Black', avatar: 'https://picsum.photos/seed/p7/40/40', message: 'I received a damaged product.', time: '3 days ago', unread: 0, active: false, ai_hint: 'person serious' },
 ];
 
 export function ChatList() {
+  // In a real app, you would use a hook to fetch chat data and manage loading state.
+  const isLoading = false;
+  
   return (
     <div className="border-r bg-card flex flex-col">
       <div className="p-4 border-b">
@@ -27,32 +33,46 @@ export function ChatList() {
       </div>
       <ScrollArea className="flex-1">
         <div className="p-2">
-          {chats.map((chat) => (
-            <button
-              key={chat.id}
-              className={cn(
-                "w-full text-left p-3 rounded-lg flex items-start gap-3 transition-colors",
-                chat.active ? "bg-primary/10" : "hover:bg-muted"
-              )}
-            >
-              <Avatar className="h-10 w-10 border">
-                <AvatarImage src={chat.avatar} alt={chat.name} data-ai-hint={chat.ai_hint} />
-                <AvatarFallback>{chat.name.charAt(0)}</AvatarFallback>
-              </Avatar>
-              <div className="flex-1">
-                <div className="flex justify-between items-center">
-                  <h3 className="font-semibold text-sm">{chat.name}</h3>
-                  <span className="text-xs text-muted-foreground">{chat.time}</span>
+          {isLoading ? (
+            <div className="space-y-2">
+              {[...Array(7)].map((_, i) => (
+                <div key={i} className="flex items-center gap-3 p-3">
+                  <Skeleton className="h-10 w-10 rounded-full" />
+                  <div className="flex-1 space-y-1">
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-3 w-1/2" />
+                  </div>
                 </div>
-                <p className="text-sm text-muted-foreground truncate">{chat.message}</p>
-              </div>
-              {chat.unread > 0 && (
-                <div className="flex items-center h-full">
-                    <Badge variant="default" className="bg-primary h-5 w-5 flex items-center justify-center p-0">{chat.unread}</Badge>
+              ))}
+            </div>
+          ) : (
+            chats.map((chat) => (
+              <button
+                key={chat.id}
+                className={cn(
+                  "w-full text-left p-3 rounded-lg flex items-start gap-3 transition-colors",
+                  chat.active ? "bg-primary/10" : "hover:bg-muted"
+                )}
+              >
+                <Avatar className="h-10 w-10 border">
+                  <AvatarImage src={chat.avatar} alt={chat.name} data-ai-hint={chat.ai_hint} />
+                  <AvatarFallback>{chat.name.charAt(0)}</AvatarFallback>
+                </Avatar>
+                <div className="flex-1">
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-semibold text-sm">{chat.name}</h3>
+                    <span className="text-xs text-muted-foreground">{chat.time}</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground truncate">{chat.message}</p>
                 </div>
-              )}
-            </button>
-          ))}
+                {chat.unread > 0 && (
+                  <div className="flex items-center h-full">
+                      <Badge variant="default" className="bg-primary h-5 w-5 flex items-center justify-center p-0">{chat.unread}</Badge>
+                  </div>
+                )}
+              </button>
+            ))
+          )}
         </div>
       </ScrollArea>
     </div>
