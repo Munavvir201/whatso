@@ -47,7 +47,7 @@ export default function LoginPage() {
         try {
             await signInWithEmailAndPassword(auth, values.email, values.password);
             toast({ title: "Login Successful", description: "Welcome back!" });
-            router.push("/dashboard/chat");
+            router.push("/dashboard");
         } catch (error: any) {
              toast({
                 variant: "destructive",

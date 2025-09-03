@@ -22,7 +22,7 @@ export default function RootLayoutClient({
     const router = useRouter();
     const { user, loading, logout } = useAuth();
     
-    const isDashboard = pathname.startsWith('/dashboard') || pathname === '/training' || pathname === '/webhooks' || pathname === '/settings';
+    const isDashboard = pathname.startsWith('/dashboard');
     const isAuthPage = pathname === '/login' || pathname === '/signup';
 
     useEffect(() => {
@@ -41,7 +41,7 @@ export default function RootLayoutClient({
 
     if (!isDashboard) {
       if (isAuthPage && user) {
-        router.push('/dashboard/chat');
+        router.push('/dashboard');
         return (
             <div className="flex items-center justify-center h-screen">
                  <Skeleton className="h-12 w-12 rounded-full" />

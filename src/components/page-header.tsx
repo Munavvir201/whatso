@@ -6,6 +6,7 @@ import { SidebarTrigger } from '@/components/ui/sidebar';
 const titles: { [key: string]: string } = {
   '/dashboard': 'Dashboard',
   '/dashboard/chat': 'AI Chat',
+  '/dashboard/getting-started': 'Getting Started',
   '/training': 'AI Model Training',
   '/webhooks': 'Webhook Integration',
   '/settings': 'Settings',

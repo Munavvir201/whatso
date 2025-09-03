@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Bot, BarChart, Settings, Webhook, BookUser } from 'lucide-react';
+import { Bot, BarChart, Settings, Webhook, BookUser, Rocket } from 'lucide-react';
 import { SidebarMenu, SidebarMenuItem, SidebarMenuButton } from '@/components/ui/sidebar';
 
 const navItems = [
+  { href: '/dashboard/getting-started', label: 'Getting Started', icon: Rocket, tooltip: 'Getting Started' },
   { href: '/dashboard/chat', label: 'AI Chat', icon: Bot, tooltip: 'Chat' },
   { href: '/dashboard', label: 'Dashboard', icon: BarChart, tooltip: 'Dashboard', exact: true },
   { href: '/training', label: 'Training', icon: BookUser, tooltip: 'Training' },

@@ -47,7 +47,7 @@ export default function SignUpPage() {
         try {
             await createUserWithEmailAndPassword(auth, values.email, values.password);
             toast({ title: "Account Created", description: "Welcome to WhatsO!" });
-            router.push("/dashboard/chat");
+            router.push("/dashboard/getting-started");
         } catch (error: any) {
             toast({
                 variant: "destructive",
