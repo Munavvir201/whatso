@@ -20,6 +20,8 @@ const verificationParams = {
   'hub.challenge': 'test_challenge_12345'
 };
 
+
+
 const sampleWhatsAppMessage = {
   object: 'whatsapp_business_account',
   entry: [{
