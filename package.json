@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "build": "next-on-pages build",
+    "build":  "next-on-pages",
     "deploy": "wrangler deploy"
   },
   "dependencies": {
