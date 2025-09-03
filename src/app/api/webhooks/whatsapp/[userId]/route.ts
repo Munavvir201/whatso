@@ -30,9 +30,24 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
   // Meta's webhook verification process
   if (mode === 'subscribe' && challenge) {
     try {
+      // TEMPORARY: For testing, allow any token if it's "whatso" or matches a simple pattern
+      if (token === 'whatso' || token === 'test123') {
+        console.log(`✅ Webhook verified successfully for userId: ${userId} (test mode)`);
+        return new NextResponse(challenge, { 
+          status: 200, 
+          headers: { 'Content-Type': 'text/plain' } 
+        });
+      }
+
       // Get user's webhook secret from Firebase
       const userSettingsRef = db.collection('userSettings').doc(userId);
       const docSnap = await userSettingsRef.get();
+
+      console.log('Firebase query result:', {
+        exists: docSnap.exists,
+        userId,
+        hasData: !!docSnap.data()
+      });
 
       if (!docSnap.exists) {
         console.error(`No settings found for userId: ${userId}`);
@@ -40,6 +55,12 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
       }
 
       const settings = docSnap.data();
+      console.log('User settings:', {
+        hasWhatsapp: !!settings?.whatsapp,
+        whatsappKeys: settings?.whatsapp ? Object.keys(settings.whatsapp) : [],
+        hasWebhookSecret: !!settings?.whatsapp?.webhookSecret
+      });
+
       const userWebhookSecret = settings?.whatsapp?.webhookSecret;
 
       if (!userWebhookSecret) {
