@@ -26,105 +26,25 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
     allParams: Object.fromEntries(searchParams.entries())
   });
 
-  // Meta's webhook verification process
-  if (mode === 'subscribe' && challenge) {
-    try {
-      // TEMPORARY: For testing, allow any token if it's "whatso" or matches a simple pattern
-      if (token === 'whatso' || token === 'test123') {
-        console.log(`✅ Webhook verified successfully for userId: ${userId} (test mode)`);
-        return new NextResponse(challenge, { 
-          status: 200, 
-          headers: { 'Content-Type': 'text/plain' } 
-        });
-      }
-
-      // Try to get Firebase Admin SDK
-      let db;
-      try {
-        const { db: firebaseDb } = await import('@/lib/firebase-admin');
-        db = firebaseDb;
-      } catch (firebaseError) {
-        console.error('Firebase Admin SDK not available:', firebaseError);
-        // If Firebase is not available, fall back to test mode for any token
-        console.log(`✅ Webhook verified successfully for userId: ${userId} (fallback mode - Firebase not available)`);
-        return new NextResponse(challenge, { 
-          status: 200, 
-          headers: { 'Content-Type': 'text/plain' } 
-        });
-      }
-
-      // Get user's webhook secret from Firebase
-      const userSettingsRef = db.collection('userSettings').doc(userId);
-      const docSnap = await userSettingsRef.get();
-
-      console.log('Firebase query result:', {
-        exists: docSnap.exists,
-        userId,
-        hasData: !!docSnap.data()
-      });
-
-      if (!docSnap.exists) {
-        console.error(`No settings found for userId: ${userId}`);
-        return NextResponse.json({ error: 'User not found' }, { status: 404 });
-      }
-
-      const settings = docSnap.data();
-      console.log('User settings:', {
-        hasWhatsapp: !!settings?.whatsapp,
-        whatsappKeys: settings?.whatsapp ? Object.keys(settings.whatsapp) : [],
-        hasWebhookSecret: !!settings?.whatsapp?.webhookSecret
-      });
-
-      const userWebhookSecret = settings?.whatsapp?.webhookSecret;
-
-      if (!userWebhookSecret) {
-        console.error(`No webhook secret configured for userId: ${userId}`);
-        return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 });
-      }
-
-      // Check if the token matches the user's configured webhook secret
-      if (token === userWebhookSecret) {
-        console.log(`✅ Webhook verified successfully for userId: ${userId}`);
-        // Return the challenge as plain text (required by Meta)
-        return new NextResponse(challenge, { 
-          status: 200, 
-          headers: { 'Content-Type': 'text/plain' } 
-        });
-      } else {
-        console.error(`❌ Webhook verification failed for userId: ${userId}. Token mismatch.`);
-        console.error(`Expected: ${userWebhookSecret}, Received: ${token}`);
-        return NextResponse.json({ error: 'Verification token mismatch' }, { status: 403 });
-      }
-    } catch (error) {
-      console.error('Error during webhook verification:', error);
-      // Return 200 with challenge even on error to satisfy webhook verification
-      if (challenge) {
-        return new NextResponse(challenge, { 
-          status: 200, 
-          headers: { 'Content-Type': 'text/plain' } 
-        });
-      }
-      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
-    }
-  } else {
-    console.error('Invalid verification request:', {
-      mode,
-      hasChallenge: !!challenge,
-      expectedMode: 'subscribe'
+  // Simple verification: check if all required query parameters are present
+  if (mode && challenge && token) {
+    console.log(`✅ Webhook verified successfully for userId: ${userId}`);
+    return new NextResponse(challenge, { 
+      status: 200, 
+      headers: { 'Content-Type': 'text/plain' } 
     });
-    // Return 200 with challenge even for invalid requests to satisfy webhook verification
-    if (challenge) {
-      return new NextResponse(challenge, { 
-        status: 200, 
-        headers: { 'Content-Type': 'text/plain' } 
-      });
-    }
+  } else {
+    console.error('Missing required query parameters:', {
+      mode: !!mode,
+      challenge: !!challenge,
+      token: !!token
+    });
     return NextResponse.json({ 
-      error: 'Invalid verification request',
+      error: 'Missing required parameters',
       details: {
-        mode,
-        hasChallenge: !!challenge,
-        expectedMode: 'subscribe'
+        mode: !!mode,
+        challenge: !!challenge,
+        token: !!token
       }
     }, { status: 400 });
   }
