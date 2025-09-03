@@ -8,28 +8,30 @@ import WhatsOLogo from '@/components/logo';
 export default function LandingPage() {
   return (
     <div className="flex flex-col min-h-dvh bg-background">
-      <header className="px-4 lg:px-6 h-16 flex items-center sticky top-0 z-50 bg-background/80 backdrop-blur-sm border-b">
-        <Link href="#" className="flex items-center justify-center" prefetch={false}>
-          <WhatsOLogo />
-        </Link>
-        <nav className="ml-auto hidden lg:flex gap-4 sm:gap-6">
-            <Link href="#features" className="text-sm font-medium hover:underline underline-offset-4" prefetch={false}>
-                Features
-            </Link>
-            <Link href="#testimonials" className="text-sm font-medium hover:underline underline-offset-4" prefetch={false}>
-                Testimonials
-            </Link>
-            <Link href="#pricing" className="text-sm font-medium hover:underline underline-offset-4" prefetch={false}>
-                Pricing
-            </Link>
-        </nav>
-        <div className="ml-auto lg:ml-4 flex items-center gap-2">
-            <Button variant="ghost" asChild>
-                <Link href="/dashboard/chat">Sign In</Link>
-            </Button>
-            <Button asChild className="bg-accent hover:bg-accent/90 text-accent-foreground">
-                <Link href="/dashboard/chat">Get Started</Link>
-            </Button>
+      <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-sm">
+        <div className="container flex h-16 items-center px-4 md:px-6">
+          <Link href="#" className="flex items-center justify-center" prefetch={false}>
+            <WhatsOLogo />
+          </Link>
+          <nav className="ml-auto hidden lg:flex gap-4 sm:gap-6">
+              <Link href="#features" className="text-sm font-medium hover:underline underline-offset-4" prefetch={false}>
+                  Features
+              </Link>
+              <Link href="#testimonials" className="text-sm font-medium hover:underline underline-offset-4" prefetch={false}>
+                  Testimonials
+              </Link>
+              <Link href="#pricing" className="text-sm font-medium hover:underline underline-offset-4" prefetch={false}>
+                  Pricing
+              </Link>
+          </nav>
+          <div className="ml-auto lg:ml-4 flex items-center gap-2">
+              <Button variant="ghost" asChild>
+                  <Link href="/dashboard/chat">Sign In</Link>
+              </Button>
+              <Button asChild className="bg-accent hover:bg-accent/90 text-accent-foreground">
+                  <Link href="/dashboard/chat">Get Started</Link>
+              </Button>
+          </div>
         </div>
       </header>
       <main className="flex-1">
