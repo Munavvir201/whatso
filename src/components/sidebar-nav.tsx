@@ -6,7 +6,7 @@ import { Bot, BarChart, Settings, Webhook, BookUser } from 'lucide-react';
 import { SidebarMenu, SidebarMenuItem, SidebarMenuButton } from '@/components/ui/sidebar';
 
 const navItems = [
-  { href: '/', label: 'AI Chat', icon: Bot, tooltip: 'Chat' },
+  { href: '/dashboard/chat', label: 'AI Chat', icon: Bot, tooltip: 'Chat' },
   { href: '/dashboard', label: 'Dashboard', icon: BarChart, tooltip: 'Dashboard' },
   { href: '/training', label: 'Training', icon: BookUser, tooltip: 'Training' },
   { href: '/webhooks', label: 'Webhooks', icon: Webhook, tooltip: 'Webhooks' },
