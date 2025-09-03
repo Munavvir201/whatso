@@ -2,12 +2,13 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_AUTH_DOMAIN",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_STORAGE_BUCKET",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID",
+  "projectId": "whatso-7wxaj",
+  "appId": "1:567542358936:web:48b098092b517a6ed241ed",
+  "storageBucket": "whatso-7wxaj.firebasestorage.app",
+  "apiKey": "AIzaSyAPyfM87tyo5ohpXhBWBwomL7yjCq7mI1A",
+  "authDomain": "whatso-7wxaj.firebaseapp.com",
+  "measurementId": "",
+  "messagingSenderId": "567542358936"
 };
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
