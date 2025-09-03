@@ -17,30 +17,67 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
   const challenge = searchParams.get('hub.challenge');
   const token = searchParams.get('hub.verify_token');
 
-  if (mode !== 'subscribe' || !token || !challenge) {
-    return NextResponse.json({ error: 'Invalid verification request' }, { status: 400 });
-  }
+  // Debug logging to see what Meta is sending
+  console.log('Meta webhook verification request:', {
+    userId,
+    mode,
+    challenge,
+    token,
+    url: req.url,
+    allParams: Object.fromEntries(searchParams.entries())
+  });
 
-  try {
-    const userSettingsRef = db.collection('userSettings').doc(userId);
-    const docSnap = await userSettingsRef.get();
+  // Meta's webhook verification process
+  if (mode === 'subscribe' && challenge) {
+    try {
+      // Get user's webhook secret from Firebase
+      const userSettingsRef = db.collection('userSettings').doc(userId);
+      const docSnap = await userSettingsRef.get();
 
-    if (!docSnap.exists) {
-      console.error(`No settings found for userId: ${userId}`);
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      if (!docSnap.exists) {
+        console.error(`No settings found for userId: ${userId}`);
+        return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      }
+
+      const settings = docSnap.data();
+      const userWebhookSecret = settings?.whatsapp?.webhookSecret;
+
+      if (!userWebhookSecret) {
+        console.error(`No webhook secret configured for userId: ${userId}`);
+        return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 });
+      }
+
+      // Check if the token matches the user's configured webhook secret
+      if (token === userWebhookSecret) {
+        console.log(`✅ Webhook verified successfully for userId: ${userId}`);
+        // Return the challenge as plain text (required by Meta)
+        return new NextResponse(challenge, { 
+          status: 200, 
+          headers: { 'Content-Type': 'text/plain' } 
+        });
+      } else {
+        console.error(`❌ Webhook verification failed for userId: ${userId}. Token mismatch.`);
+        console.error(`Expected: ${userWebhookSecret}, Received: ${token}`);
+        return NextResponse.json({ error: 'Verification token mismatch' }, { status: 403 });
+      }
+    } catch (error) {
+      console.error('Error during webhook verification:', error);
+      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }
-
-    const settings = docSnap.data();
-    if (settings?.whatsapp?.webhookSecret === token) {
-      console.log(`Verified webhook for userId: ${userId}`);
-      return new NextResponse(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
-    } else {
-      console.error(`Webhook verification failed for userId: ${userId}. Tokens do not match.`);
-      return NextResponse.json({ error: 'Verification token mismatch' }, { status: 403 });
-    }
-  } catch (error) {
-    console.error('Error during webhook verification:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  } else {
+    console.error('Invalid verification request:', {
+      mode,
+      hasChallenge: !!challenge,
+      expectedMode: 'subscribe'
+    });
+    return NextResponse.json({ 
+      error: 'Invalid verification request',
+      details: {
+        mode,
+        hasChallenge: !!challenge,
+        expectedMode: 'subscribe'
+      }
+    }, { status: 400 });
   }
 }
 
