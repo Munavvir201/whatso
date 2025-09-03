@@ -8,7 +8,7 @@ import { Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Badge } from "./ui/badge"
 import { Skeleton } from "./ui/skeleton"
-import { collection, getDocs, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 interface Chat {
@@ -27,23 +27,25 @@ const useChatList = () => {
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        const fetchChats = async () => {
-            setIsLoading(true);
-            // In a real app, you would fetch this from Firestore.
-            // For now, we simulate this fetch.
-            await new Promise(resolve => setTimeout(resolve, 1000));
-             setChats([
-                { id: '1', name: 'John Doe', avatar: 'https://picsum.photos/seed/p1/40/40', message: 'Hey, I have a question about my order.', time: '10:30 AM', unread: 2, active: true, ai_hint: 'man portrait' },
-                { id: '2', name: 'Alice Smith', avatar: 'https://picsum.photos/seed/p2/40/40', message: 'Perfect, thank you!', time: '10:25 AM', unread: 0, active: false, ai_hint: 'woman face' },
-                { id: '3', name: 'Bob Johnson', avatar: 'https://picsum.photos/seed/p3/40/40', message: 'Can you help me with a return?', time: '9:15 AM', unread: 0, active: false, ai_hint: 'person glasses' },
-                { id: '4', name: 'Emily White', avatar: 'https://picsum.photos/seed/p4/40/40', message: 'I need to update my shipping address.', time: 'Yesterday', unread: 5, active: false, ai_hint: 'woman smiling' },
-                { id: '5', name: 'Michael Brown', avatar: 'https://picsum.photos/seed/p5/40/40', message: 'What are your business hours?', time: 'Yesterday', unread: 0, active: false, ai_hint: 'man smiling' },
-                { id: '6', name: 'Sarah Green', avatar: 'https://picsum.photos/seed/p6/40/40', message: 'Is this item in stock?', time: '2 days ago', unread: 0, active: false, ai_hint: 'woman nature' },
-                { id: '7', name: 'David Black', avatar: 'https://picsum.photos/seed/p7/40/40', message: 'I received a damaged product.', time: '3 days ago', unread: 0, active: false, ai_hint: 'person serious' },
-              ]);
+        setIsLoading(true);
+        const q = query(collection(db, "chats"), orderBy("time", "desc"));
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+            const chatsData: Chat[] = [];
+            querySnapshot.forEach((doc) => {
+                chatsData.push({ id: doc.id, ...doc.data() } as Chat);
+            });
+            // Temp: mark first chat as active
+            if (chatsData.length > 0) {
+              chatsData[0].active = true;
+            }
+            setChats(chatsData);
             setIsLoading(false);
-        };
-        fetchChats();
+        }, (error) => {
+            console.error("Error fetching chats: ", error);
+            setIsLoading(false);
+        });
+
+        return () => unsubscribe();
     }, []);
 
     return { chats, isLoading };

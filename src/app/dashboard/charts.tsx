@@ -4,41 +4,7 @@ import { AreaChart as RechartsAreaChart, BarChart as RechartsBarChart, Area, Bar
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart"
 import { Skeleton } from "@/components/ui/skeleton"
 import React from "react"
-
-// In a real app, you'd fetch this from Firestore. We'll simulate that with a hook.
-const useChartData = () => {
-  const [barChartData, setBarChartData] = React.useState<any[]>([]);
-  const [areaChartData, setAreaChartData] = React.useState<any[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    // Simulate fetching data from Firestore
-    const timer = setTimeout(() => {
-      setBarChartData([
-        { month: "January", conversations: 186 },
-        { month: "February", conversations: 305 },
-        { month: "March", conversations: 237 },
-        { month: "April", conversations: 273 },
-        { month: "May", conversations: 209 },
-        { month: "June", conversations: 214 },
-      ]);
-      setAreaChartData([
-        { date: "2024-01-01", score: 88 },
-        { date: "2024-02-01", score: 89 },
-        { date: "2024-03-01", score: 91 },
-        { date: "2024-04-01", score: 90 },
-        { date: "2024-05-01", score: 92 },
-        { date: "2024-06-01", score: 93 },
-      ]);
-      setIsLoading(false);
-    }, 1000); // Simulate network delay
-
-    return () => clearTimeout(timer);
-  }, []);
-
-  return { barChartData, areaChartData, isLoading };
-}
-
+import { useDashboardStats } from "./page" // Import the hook
 
 const chartConfig = {
   conversations: {
@@ -52,7 +18,7 @@ const chartConfig = {
 }
 
 export function BarChart() {
-  const { barChartData, isLoading } = useChartData();
+  const { stats, isLoading } = useDashboardStats();
 
   if (isLoading) {
     return <Skeleton className="h-[300px] w-full" />
@@ -61,7 +27,7 @@ export function BarChart() {
   return (
     <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
       <ResponsiveContainer width="100%" height={300}>
-        <RechartsBarChart data={barChartData}>
+        <RechartsBarChart data={stats.barChartData}>
           <CartesianGrid vertical={false} />
           <XAxis
             dataKey="month"
@@ -79,7 +45,7 @@ export function BarChart() {
 }
 
 export function AreaChart() {
-  const { areaChartData, isLoading } = useChartData();
+  const { stats, isLoading } = useDashboardStats();
 
     if (isLoading) {
       return <Skeleton className="h-[300px] w-full" />
@@ -88,7 +54,7 @@ export function AreaChart() {
   return (
     <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
       <ResponsiveContainer width="100%" height={300}>
-        <RechartsAreaChart data={areaChartData}>
+        <RechartsAreaChart data={stats.areaChartData}>
           <CartesianGrid vertical={false} />
           <XAxis 
             dataKey="date" 

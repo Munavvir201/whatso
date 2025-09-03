@@ -10,13 +10,14 @@ const titles: { [key: string]: string } = {
   '/training': 'AI Model Training',
   '/webhooks': 'Webhook Integration',
   '/settings': 'Settings',
+  '/seed-database': 'Seed Database',
 };
 
 export function PageHeader() {
   const pathname = usePathname();
   const title = titles[pathname] || 'WhatsO';
 
-  const isDashboard = pathname.startsWith('/dashboard') || pathname === '/training' || pathname === '/webhooks' || pathname === '/settings';
+  const isDashboard = pathname.startsWith('/dashboard') || pathname === '/training' || pathname === '/webhooks' || pathname === '/settings' || pathname === '/seed-database';
 
   if (!isDashboard) {
     return null;

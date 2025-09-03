@@ -8,30 +8,35 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
-const useDashboardStats = () => {
-    const [stats, setStats] = useState({
-        totalConversations: { value: 0, change: 0 },
-        activeUsers: { value: 0, change: 0 },
-        avgResponseTime: { value: '0s', change: 0 },
-        satisfactionScore: { value: '0%', change: 0 },
-    });
+const initialStats = {
+    totalConversations: { value: 0, change: 0 },
+    activeUsers: { value: 0, change: 0 },
+    avgResponseTime: { value: '0s', change: 0 },
+    satisfactionScore: { value: '0%', change: 0 },
+    barChartData: [],
+    areaChartData: [],
+};
+
+export const useDashboardStats = () => {
+    const [stats, setStats] = useState(initialStats);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const fetchStats = async () => {
+            setIsLoading(true);
             try {
-                // In a real app, you might fetch this from a 'dashboard' document
-                // For now, we'll simulate the fetch.
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate network delay
-                
-                setStats({
-                    totalConversations: { value: 1234, change: 15.2 },
-                    activeUsers: { value: 231, change: 21 },
-                    avgResponseTime: { value: '3.2s', change: -5 },
-                    satisfactionScore: { value: '92%', change: 2.1 },
-                });
+                const docRef = doc(db, 'dashboard', 'stats');
+                const docSnap = await getDoc(docRef);
+
+                if (docSnap.exists()) {
+                    setStats(docSnap.data() as any);
+                } else {
+                    console.log("No such document! Using initial stats.");
+                    setStats(initialStats);
+                }
             } catch (error) {
                 console.error("Error fetching dashboard stats: ", error);
+                setStats(initialStats);
             } finally {
                 setIsLoading(false);
             }

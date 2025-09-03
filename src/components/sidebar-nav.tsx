@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Bot, BarChart, Settings, Webhook, BookUser, Rocket } from 'lucide-react';
+import { Bot, BarChart, Settings, Webhook, BookUser, Rocket, Database } from 'lucide-react';
 import { SidebarMenu, SidebarMenuItem, SidebarMenuButton } from '@/components/ui/sidebar';
 
 const navItems = [
@@ -12,6 +12,7 @@ const navItems = [
   { href: '/training', label: 'Training', icon: BookUser, tooltip: 'Training' },
   { href: '/webhooks', label: 'Webhooks', icon: Webhook, tooltip: 'Webhooks' },
   { href: '/settings', label: 'Settings', icon: Settings, tooltip: 'Settings' },
+  { href: '/seed-database', label: 'Seed Database', icon: Database, tooltip: 'Seed Database' },
 ];
 
 export function SidebarNav() {

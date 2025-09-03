@@ -12,13 +12,13 @@ import { Bot, Send } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Skeleton } from './ui/skeleton';
 import { db } from '@/lib/firebase';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, Timestamp } from 'firebase/firestore';
 
 interface Message {
   id: string;
   sender: 'user' | 'ai';
   content: string;
-  timestamp: string;
+  timestamp: Timestamp;
 }
 
 const useChatMessages = (chatId: string) => {
@@ -26,28 +26,36 @@ const useChatMessages = (chatId: string) => {
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        // In a real app, you'd unsubscribe from the listener on cleanup
-        if (!chatId) return;
-
-        const fetchMessages = async () => {
-            setIsLoading(true);
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            setMessages([
-                { id: '1', sender: 'user', content: 'Hey, I have a question about my order #12345.', timestamp: '10:30 AM' },
-                { id: '2', sender: 'ai', content: 'Hello! I can help with that. What is your question regarding order #12345?', timestamp: '10:31 AM' },
-                { id: '3', sender: 'user', content: 'I need to know the estimated delivery date.', timestamp: '10:32 AM' },
-                { id: '4', sender: 'ai', content: 'Of course. Let me check... The estimated delivery date for your order is this Friday, between 9 AM and 5 PM.', timestamp: '10:32 AM' },
-                { id: '5', sender: 'user', content: 'Great, thanks for the quick response!', timestamp: '10:33 AM' },
-            ]);
+        if (!chatId) {
             setIsLoading(false);
-        }
+            setMessages([]);
+            return;
+        };
 
-        fetchMessages();
-        
+        setIsLoading(true);
+        const q = query(collection(db, "chats", chatId, "messages"), orderBy("timestamp", "asc"));
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+            const messagesData: Message[] = [];
+            querySnapshot.forEach((doc) => {
+                messagesData.push({ id: doc.id, ...doc.data() } as Message);
+            });
+            setMessages(messagesData);
+            setIsLoading(false);
+        }, (error) => {
+            console.error(`Error fetching messages for chat ${chatId}: `, error);
+            setIsLoading(false);
+        });
+
+        return () => unsubscribe();
     }, [chatId]);
 
     return { messages, isLoading };
 };
+
+const formatTimestamp = (timestamp: Timestamp | null) => {
+    if (!timestamp) return '';
+    return timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 
 export function ChatView() {
     // In a real app, the activeChatId would come from component props or a global state.
@@ -99,7 +107,7 @@ export function ChatView() {
                         >
                             {message.content}
                             <span className={cn("text-xs self-end", message.sender === 'user' ? 'text-primary-foreground/70' : 'text-muted-foreground')}>
-                                {message.timestamp}
+                               {formatTimestamp(message.timestamp)}
                             </span>
                         </div>
                     ))}
