@@ -11,19 +11,35 @@ import { Badge } from "./ui/badge"
 import { Skeleton } from "./ui/skeleton"
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { useAuth } from '@/hooks/use-auth';
 import type { Chat } from '@/types/chat';
 
-const useChatList = () => {
+const useChatList = (userId: string | null) => {
     const [chats, setChats] = useState<Chat[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
+        if (!userId) {
+            setIsLoading(false);
+            return;
+        }
         setIsLoading(true);
-        const q = query(collection(db, "chats"), orderBy("time", "desc"));
+        const q = query(collection(db, "userSettings", userId, "conversations"), orderBy("lastUpdated", "desc"));
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
             const chatsData: Chat[] = [];
             querySnapshot.forEach((doc) => {
-                chatsData.push({ id: doc.id, ...doc.data() } as Chat);
+                const data = doc.data();
+                // We create a "Chat" object for the list from conversation data
+                chatsData.push({
+                    id: doc.id, // The customer's phone number is the ID
+                    name: data.customerName || `Customer ${doc.id.slice(-4)}`,
+                    avatar: `https://picsum.photos/seed/${doc.id}/40/40`,
+                    message: data.lastMessage || 'No messages yet.',
+                    time: data.lastUpdated?.toDate().toLocaleTimeString() || '',
+                    unread: data.unreadCount || 0,
+                    active: true, // Placeholder
+                    ai_hint: 'person face',
+                });
             });
             setChats(chatsData);
             setIsLoading(false);
@@ -33,13 +49,14 @@ const useChatList = () => {
         });
 
         return () => unsubscribe();
-    }, []);
+    }, [userId]);
 
     return { chats, isLoading };
 };
 
 export function ChatList({ activeChatId, setActiveChatId }: { activeChatId: string | null, setActiveChatId: (id: string) => void }) {
-  const { chats, isLoading } = useChatList();
+  const { user } = useAuth();
+  const { chats, isLoading } = useChatList(user?.uid || null);
   
   return (
     <div className="border-r bg-card flex flex-col">

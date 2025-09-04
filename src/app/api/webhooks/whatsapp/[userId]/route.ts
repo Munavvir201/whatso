@@ -1,7 +1,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db, FieldValue } from '@/lib/firebase-admin';
-import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
 
 /**
  * Handles webhook verification from Meta.
@@ -57,8 +56,9 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
 
 /**
  * Handles incoming messages from WhatsApp.
+ * This function only stores the message in Firestore.
  */
-export async function POST(req: NextRequest, { params }: { params: { userId:string } }) {
+export async function POST(req: NextRequest, { params }: { params: { userId: string } }) {
     const { userId } = params;
     
     try {
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest, { params }: { params: { userId:stri
         }
 
         // Respond to Meta immediately as required, and process the message in the background.
-        processMessageAsync(userId, message).catch(err => {
+        storeMessageAsync(userId, message).catch(err => {
             console.error("Error in async message processing:", err);
         });
 
@@ -86,11 +86,11 @@ export async function POST(req: NextRequest, { params }: { params: { userId:stri
 }
 
 /**
- * Processes a WhatsApp message asynchronously, including conversation history.
+ * Stores an incoming WhatsApp message in Firestore.
  */
-async function processMessageAsync(userId: string, message: any) {
+async function storeMessageAsync(userId: string, message: any) {
     if (message.type !== 'text' || !message.text?.body) {
-        console.log('Skipping processing: Message is not a text message.');
+        console.log('Skipping storage: Message is not a text message.');
         return;
     }
 
@@ -98,56 +98,29 @@ async function processMessageAsync(userId: string, message: any) {
     const messageBody = message.text.body;
 
     try {
-        const userSettingsRef = db.collection('userSettings').doc(userId);
-        const docSnap = await userSettingsRef.get();
-        const whatsappSettings = docSnap.data()?.whatsapp;
-
-        if (!whatsappSettings?.phoneNumberId || !whatsappSettings?.accessToken) {
-            console.error(`🔴 AI Processing FAILED: Missing WhatsApp credentials for user ${userId}.`);
-            return;
-        }
-
-        // --- Conversation History Management ---
-        const conversationRef = db.collection('users').doc(userId).collection('conversations').doc(from);
-        const conversationSnap = await conversationRef.get();
-        let history = conversationSnap.exists ? conversationSnap.data()?.history || [] : [];
+        // The conversation ID is the customer's phone number
+        const conversationId = from;
+        const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
         
-        // Add new user message to history
-        const userMessageEntry = { role: 'user', content: messageBody, timestamp: new Date() };
-        history.push(userMessageEntry);
-
-        // Call AI with current message and full history
-        const aiResponse = await automateWhatsAppChat({
-            message: messageBody,
-            conversationHistory: history.map((h: any) => `${h.role}: ${h.content}`).join('\n'),
-        });
-        
-        const aiMessageEntry = { role: 'ai', content: aiResponse.response, timestamp: new Date() };
-        history.push(aiMessageEntry);
-
-        // --- Persist Conversation ---
+        // Ensure conversation document exists
         await conversationRef.set({
-            history: history,
-            lastUpdated: FieldValue.serverTimestamp()
+            lastUpdated: FieldValue.serverTimestamp(),
+            customerName: 'Customer ' + from.slice(-4), // Placeholder name
+            customerNumber: from,
         }, { merge: true });
 
-        // --- Send Response via WhatsApp API ---
-        await fetch(`https://graph.facebook.com/v20.0/${whatsappSettings.phoneNumberId}/messages`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${whatsappSettings.accessToken}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                messaging_product: 'whatsapp',
-                to: from,
-                text: { body: aiResponse.response },
-            }),
+        // Add the new message to the 'messages' subcollection
+        const messagesRef = conversationRef.collection('messages');
+        await messagesRef.add({
+            sender: 'customer',
+            content: messageBody,
+            timestamp: FieldValue.serverTimestamp(),
+            whatsappMessageId: message.id,
         });
 
-        console.log(`✅ Successfully sent AI response to ${from}.`);
+        console.log(`✅ Successfully stored message from ${from} for user ${userId}.`);
 
     } catch (error) {
-        console.error(`🔴 UNEXPECTED ERROR processing message for ${from}:`, error);
+        console.error(`🔴 UNEXPECTED ERROR storing message from ${from}:`, error);
     }
 }
