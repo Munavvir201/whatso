@@ -20,7 +20,7 @@ import { useState, useEffect } from "react";
 import { Copy, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { db } from "@/lib/firebase";
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
@@ -54,32 +54,46 @@ export function WhatsappForm() {
   });
 
   useEffect(() => {
-    async function fetchSettings() {
-      if (!user) {
-        setIsFetching(false);
-        return;
-      };
+    if (!user) {
+      setIsFetching(false);
+      return;
+    }
 
-      if (window.location.origin) {
-        setWebhookUrl(`${window.location.origin}/api/webhooks/whatsapp/${user.uid}`);
-      }
+    if (window.location.origin) {
+      setWebhookUrl(`${window.location.origin}/api/webhooks/whatsapp/${user.uid}`);
+    }
 
+    const userSettingsRef = doc(db, "userSettings", user.uid);
+    
+    // Use onSnapshot for real-time updates
+    const unsubscribe = onSnapshot(userSettingsRef, (docSnap) => {
       setIsFetching(true);
-      const userSettingsRef = doc(db, "userSettings", user.uid);
-      const docSnap = await getDoc(userSettingsRef);
-
       if (docSnap.exists() && docSnap.data().whatsapp) {
         const creds = docSnap.data().whatsapp as WhatsappFormData;
         setSavedCredentials(creds);
         form.reset(creds);
+        // If we have credentials, we are not in the initial editing state.
+        // This prevents the form from flashing to edit mode on load.
+        setIsEditing(false);
       } else {
-        setIsEditing(true); // If no data, go straight to editing mode
+        // If no data exists, go straight to editing mode
+        setIsEditing(true);
+        setSavedCredentials(null); // Clear any old credentials
       }
       setIsFetching(false);
-    }
+    }, (error) => {
+        console.error("Error fetching real-time settings:", error);
+        toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Could not fetch settings in real-time.",
+        });
+        setIsFetching(false);
+    });
 
-    fetchSettings();
-  }, [user, form]);
+    // Cleanup the listener when the component unmounts
+    return () => unsubscribe();
+  }, [user, form.reset, toast]);
 
   async function onSubmit(values: WhatsappFormData) {
     if (!user) {
@@ -94,6 +108,7 @@ export function WhatsappForm() {
     setIsLoading(true);
     try {
         const userSettingsRef = doc(db, "userSettings", user.uid);
+        // Preserve the 'verified' status if it's already set
         const newStatus = savedCredentials?.status === 'verified' ? 'verified' : 'pending';
         const dataToSave = { ...values, status: newStatus };
 
@@ -103,7 +118,7 @@ export function WhatsappForm() {
             title: "Settings Saved!",
             description: "Your WhatsApp API credentials have been saved securely.",
         });
-        setSavedCredentials(dataToSave);
+        // No need to call setSavedCredentials here, onSnapshot will handle it
         setIsEditing(false);
 
     } catch (error: any) {
