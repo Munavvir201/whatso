@@ -30,7 +30,7 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
     const userSettingsRef = db.collection('userSettings').doc(userId);
     const docSnap = await userSettingsRef.get();
 
-    if (!docSnap.exists() || !docSnap.data()?.whatsapp?.webhookSecret) {
+    if (!docSnap.exists || !docSnap.data()?.whatsapp?.webhookSecret) {
       console.error(`🔴 Verification FAILED: No webhook secret found for user ${userId}.`);
       return NextResponse.json({ error: 'User settings or webhook secret not found' }, { status: 404 });
     }
