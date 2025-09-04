@@ -17,12 +17,19 @@ export async function GET(req: NextRequest) {
     specificParams: {
       hub_mode: searchParams.get('hub.mode'),
       hub_verify_token: searchParams.get('hub.verify_token'),
-      hub_challenge: searchParams.get('hub.challenge'),
+      hub_challenge: search_params.get('hub.challenge'),
     },
     allSearchParams: searchParams.toString()
   };
 
   console.log('🔍 Webhook Debug Info:', debugInfo);
+
+  // For verification, Meta expects the challenge to be returned.
+  // We'll return it, but also the debug info.
+  const challenge = searchParams.get('hub.challenge');
+  if (challenge) {
+    return new NextResponse(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
+  }
 
   return NextResponse.json(debugInfo, { status: 200 });
 }
