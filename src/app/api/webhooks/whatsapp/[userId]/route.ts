@@ -18,6 +18,8 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
   const challenge = searchParams.get('hub.challenge');
 
   console.log(`--- Webhook Verification for User: ${userId} ---`);
+  console.log(`Received query params: mode=${mode}, token=${token}, challenge=${challenge}`);
+
 
   if (mode !== 'subscribe' || !token || !challenge) {
     console.error('🔴 Verification FAILED: Missing or invalid parameters.');
@@ -28,12 +30,16 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
     const userSettingsRef = db.collection('userSettings').doc(userId);
     const docSnap = await userSettingsRef.get();
 
-    if (!docSnap.exists || !docSnap.data()?.whatsapp?.webhookSecret) {
+    if (!docSnap.exists() || !docSnap.data()?.whatsapp?.webhookSecret) {
       console.error(`🔴 Verification FAILED: No webhook secret found for user ${userId}.`);
       return NextResponse.json({ error: 'User settings or webhook secret not found' }, { status: 404 });
     }
 
     const storedToken = docSnap.data()?.whatsapp.webhookSecret;
+    
+    console.log(`Received Token from Meta: "${token}"`);
+    console.log(`Stored Token in DB:     "${storedToken}"`);
+
 
     if (token === storedToken) {
       console.log(`✅ Verification SUCCESS: Tokens match.`);
@@ -53,7 +59,7 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
 /**
  * Handles incoming messages from WhatsApp.
  */
-export async function POST(req: NextRequest, { params }: { params: { userId: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { userId:string } }) {
     const { userId } = params;
     
     try {
