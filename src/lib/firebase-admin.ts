@@ -1,22 +1,47 @@
 
-import * as admin from 'firebase-admin';
+import * as admin from "firebase-admin";
 
-// This file is used for server-side operations, like in API routes.
-// It uses the Firebase Admin SDK, which requires service account credentials.
+// This is the recommended and most reliable pattern for initializing the Firebase Admin SDK.
+// It uses a service account, which explicitly grants your application the necessary permissions.
 
-// Important: Your service account credentials should be set as an environment
-// variable in your hosting environment (e.g., GOOGLE_APPLICATION_CREDENTIALS).
-// They should not be hard-coded in the source code.
+// IMPORTANT: You must set these environment variables in your hosting environment.
+const projectId = process.env.FIREBASE_PROJECT_ID;
+const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+// The private key needs to have its newline characters properly formatted.
+const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
 
+// This check prevents the app from being initialized multiple times, which is crucial
+// in a serverless environment or during hot-reloads.
 if (!admin.apps.length) {
+  // Throw an error if the required environment variables are not set. This makes
+  // debugging much easier than letting the SDK fail silently.
+  if (!projectId || !clientEmail || !privateKey) {
+    throw new Error(
+      'Missing Firebase Admin SDK credentials. Please set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY environment variables.'
+    );
+  }
+
   try {
+    console.log('Initializing Firebase Admin SDK with service account...');
     admin.initializeApp({
-      credential: admin.credential.applicationDefault(),
+      credential: admin.credential.cert({
+        projectId,
+        clientEmail,
+        privateKey,
+      }),
     });
-  } catch (error) {
-    console.error('Firebase Admin initialization error', error);
+    console.log("Firebase Admin SDK initialized SUCCESSFULLY.");
+
+  } catch (error: any) {
+    console.error('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+    console.error('!!! CRITICAL: FIREBASE ADMIN SDK INITIALIZATION FAILED !!!');
+    console.error('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+    console.error("Root Cause:", error.message);
+    // Stop the process if initialization fails.
+    throw new Error(`Firebase Admin SDK failed to initialize: ${error.message}`);
   }
 }
 
+// Export the initialized services. These lines are only reachable if the above code succeeds.
 export const db = admin.firestore();
 export const auth = admin.auth();
