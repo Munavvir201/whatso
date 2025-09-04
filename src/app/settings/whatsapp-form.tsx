@@ -29,6 +29,7 @@ const formSchema = z.object({
     phoneNumberId: z.string().min(1, { message: "Phone Number ID is required." }),
     accessToken: z.string().min(1, { message: "Access Token is required." }),
     webhookSecret: z.string().min(1, { message: "Webhook Secret is required." }),
+    status: z.string().optional(),
 });
 
 type WhatsappFormData = z.infer<typeof formSchema>;
@@ -48,6 +49,7 @@ export function WhatsappForm() {
       phoneNumberId: "",
       accessToken: "",
       webhookSecret: "",
+      status: "pending",
     },
   });
 
@@ -92,13 +94,16 @@ export function WhatsappForm() {
     setIsLoading(true);
     try {
         const userSettingsRef = doc(db, "userSettings", user.uid);
-        await setDoc(userSettingsRef, { whatsapp: values }, { merge: true });
+        const newStatus = savedCredentials?.status === 'verified' ? 'verified' : 'pending';
+        const dataToSave = { ...values, status: newStatus };
+
+        await setDoc(userSettingsRef, { whatsapp: dataToSave }, { merge: true });
 
         toast({
             title: "Settings Saved!",
             description: "Your WhatsApp API credentials have been saved securely.",
         });
-        setSavedCredentials(values);
+        setSavedCredentials(dataToSave);
         setIsEditing(false);
 
     } catch (error: any) {
@@ -143,6 +148,18 @@ export function WhatsappForm() {
   if (savedCredentials && !isEditing) {
     return (
         <div className="space-y-6">
+             <div>
+                <Label>Status</Label>
+                <div className={`flex items-center text-sm mt-1 font-mono p-2 rounded-md ${savedCredentials.status === 'verified' ? 'bg-green-100 text-green-900' : 'bg-yellow-100 text-yellow-900'}`}>
+                    {savedCredentials.status === 'verified'
+                        ? <><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg><span>Verified</span></>
+                        : <><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 102 0V6zm-1 8a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" /></svg><span>Pending Verification</span></>
+                    }
+                </div>
+                 <p className="text-xs text-muted-foreground mt-1">
+                    {savedCredentials.status !== 'verified' && "Complete the webhook setup in your Meta Developer account to verify."}
+                </p>
+            </div>
             <div>
                 <Label>Your Phone Number ID</Label>
                 <p className="text-muted-foreground text-sm mt-1 font-mono bg-muted p-2 rounded-md">{savedCredentials.phoneNumberId}</p>
@@ -234,4 +251,3 @@ export function WhatsappForm() {
     </Form>
   );
 }
-
