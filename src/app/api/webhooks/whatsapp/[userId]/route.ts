@@ -1,5 +1,4 @@
 
-
 import { NextRequest, NextResponse } from 'next/server';
 import { db, FieldValue } from '@/lib/firebase-admin';
 import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
@@ -73,7 +72,7 @@ export async function POST(req: NextRequest, { params }: { params: { userId:stri
             return NextResponse.json({ status: 'not a valid whatsapp message' }, { status: 200 });
         }
 
-        // Respond to Meta immediately as required
+        // Respond to Meta immediately as required, and process the message in the background.
         processMessageAsync(userId, message).catch(err => {
             console.error("Error in async message processing:", err);
         });
@@ -114,16 +113,16 @@ async function processMessageAsync(userId: string, message: any) {
         let history = conversationSnap.exists ? conversationSnap.data()?.history || [] : [];
         
         // Add new user message to history
-        const userMessageEntry = { role: 'user', content: messageBody };
+        const userMessageEntry = { role: 'user', content: messageBody, timestamp: new Date() };
         history.push(userMessageEntry);
 
-        // Call AI with current message and history
+        // Call AI with current message and full history
         const aiResponse = await automateWhatsAppChat({
             message: messageBody,
             conversationHistory: history.map((h: any) => `${h.role}: ${h.content}`).join('\n'),
         });
         
-        const aiMessageEntry = { role: 'ai', content: aiResponse.response };
+        const aiMessageEntry = { role: 'ai', content: aiResponse.response, timestamp: new Date() };
         history.push(aiMessageEntry);
 
         // --- Persist Conversation ---

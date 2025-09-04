@@ -17,12 +17,12 @@ export async function GET(req: NextRequest) {
     specificParams: {
       hub_mode: searchParams.get('hub.mode'),
       hub_verify_token: searchParams.get('hub.verify_token'),
-      hub_challenge: search_params.get('hub.challenge'),
+      hub_challenge: searchParams.get('hub.challenge'),
     },
     allSearchParams: searchParams.toString()
   };
 
-  console.log('🔍 Webhook Debug Info:', debugInfo);
+  console.log('🔍 Webhook Debug Info:', JSON.stringify(debugInfo, null, 2));
 
   // For verification, Meta expects the challenge to be returned.
   // We'll return it, but also the debug info.
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     })()
   };
 
-  console.log('🔍 Webhook Debug Info (POST):', debugInfo);
+  console.log('🔍 Webhook Debug Info (POST):', JSON.stringify(debugInfo, null, 2));
 
   return NextResponse.json(debugInfo, { status: 200 });
 }
