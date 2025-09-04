@@ -17,11 +17,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { Copy, Loader2 } from "lucide-react";
+import { Copy, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { db } from "@/lib/firebase";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 
@@ -65,20 +64,16 @@ export function WhatsappForm() {
 
     const userSettingsRef = doc(db, "userSettings", user.uid);
     
-    // Use onSnapshot for real-time updates
     const unsubscribe = onSnapshot(userSettingsRef, (docSnap) => {
       setIsFetching(true);
       if (docSnap.exists() && docSnap.data().whatsapp) {
         const creds = docSnap.data().whatsapp as WhatsappFormData;
         setSavedCredentials(creds);
         form.reset(creds);
-        // If we have credentials, we are not in the initial editing state.
-        // This prevents the form from flashing to edit mode on load.
         setIsEditing(false);
       } else {
-        // If no data exists, go straight to editing mode
         setIsEditing(true);
-        setSavedCredentials(null); // Clear any old credentials
+        setSavedCredentials(null);
       }
       setIsFetching(false);
     }, (error) => {
@@ -91,7 +86,6 @@ export function WhatsappForm() {
         setIsFetching(false);
     });
 
-    // Cleanup the listener when the component unmounts
     return () => unsubscribe();
   }, [user, form.reset, toast]);
 
@@ -108,7 +102,6 @@ export function WhatsappForm() {
     setIsLoading(true);
     try {
         const userSettingsRef = doc(db, "userSettings", user.uid);
-        // Preserve the 'verified' status if it's already set
         const newStatus = savedCredentials?.status === 'verified' ? 'verified' : 'pending';
         const dataToSave = { ...values, status: newStatus };
 
@@ -118,7 +111,6 @@ export function WhatsappForm() {
             title: "Settings Saved!",
             description: "Your WhatsApp API credentials have been saved securely.",
         });
-        // No need to call setSavedCredentials here, onSnapshot will handle it
         setIsEditing(false);
 
     } catch (error: any) {
@@ -165,10 +157,10 @@ export function WhatsappForm() {
         <div className="space-y-6">
              <div>
                 <Label>Status</Label>
-                <div className={`flex items-center text-sm mt-1 font-mono p-2 rounded-md ${savedCredentials.status === 'verified' ? 'bg-green-100 text-green-900' : 'bg-yellow-100 text-yellow-900'}`}>
+                <div className={`flex items-center text-sm mt-1 font-semibold p-3 rounded-md ${savedCredentials.status === 'verified' ? 'bg-green-100 text-green-900' : 'bg-yellow-100 text-yellow-900'}`}>
                     {savedCredentials.status === 'verified'
-                        ? <><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg><span>Verified</span></>
-                        : <><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 102 0V6zm-1 8a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" /></svg><span>Pending Verification</span></>
+                        ? <><CheckCircle2 className="h-5 w-5 mr-2" /><span>Verified</span></>
+                        : <><AlertTriangle className="h-5 w-5 mr-2" /><span>Pending Verification</span></>
                     }
                 </div>
                  <p className="text-xs text-muted-foreground mt-1">
@@ -200,7 +192,7 @@ export function WhatsappForm() {
                 <Label>Your Webhook URL</Label>
                  <div className="flex items-center space-x-2">
                     <Input readOnly value={webhookUrl} className="font-mono" />
-                    <Button variant="outline" size="icon" onClick={copyToClipboard}><Copy className="h-4 w-4" /></Button>
+                    <Button type="button" variant="outline" size="icon" onClick={copyToClipboard}><Copy className="h-4 w-4" /></Button>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">Paste this in your Meta for Developers app webhook configuration.</p>
             </div>
@@ -259,7 +251,7 @@ export function WhatsappForm() {
             Save Credentials
             </Button>
             {savedCredentials && (
-                 <Button variant="ghost" onClick={() => setIsEditing(false)}>Cancel</Button>
+                 <Button variant="ghost" type="button" onClick={() => setIsEditing(false)}>Cancel</Button>
             )}
         </div>
       </form>

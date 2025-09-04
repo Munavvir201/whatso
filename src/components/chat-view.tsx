@@ -1,27 +1,21 @@
+
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { Bot, Send } from "lucide-react"
+import { Bot, Send, User } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Skeleton } from './ui/skeleton';
 import { db } from '@/lib/firebase';
-import { collection, onSnapshot, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, Timestamp, addDoc } from 'firebase/firestore';
+import type { Message, Chat } from '@/types/chat';
 
-interface Message {
-  id: string;
-  sender: 'user' | 'ai';
-  content: string;
-  timestamp: Timestamp;
-}
-
-const useChatMessages = (chatId: string) => {
+const useChatMessages = (chatId: string | null) => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -57,24 +51,53 @@ const formatTimestamp = (timestamp: Timestamp | null) => {
     return timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export function ChatView() {
-    // In a real app, the activeChatId would come from component props or a global state.
-    const activeChatId = '1'; 
-    const { messages, isLoading } = useChatMessages(activeChatId);
+export function ChatView({ activeChat }: { activeChat: Chat | null }) {
+    const { messages, isLoading } = useChatMessages(activeChat?.id || null);
+    const [newMessage, setNewMessage] = useState("");
+    const scrollAreaRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+      if (scrollAreaRef.current) {
+        scrollAreaRef.current.scrollTo({ top: scrollAreaRef.current.scrollHeight });
+      }
+    }, [messages]);
+
+    const handleSendMessage = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newMessage.trim() || !activeChat) return;
+
+        const messageData = {
+            sender: 'ai', // In a real app, this might be the logged-in agent
+            content: newMessage,
+            timestamp: new Date()
+        };
+        
+        await addDoc(collection(db, "chats", activeChat.id, "messages"), messageData);
+        setNewMessage("");
+    }
+
+  if (!activeChat) {
+    return (
+        <div className="flex flex-col h-full items-center justify-center bg-background text-muted-foreground">
+            <Bot size={48} />
+            <p className="mt-4 text-lg">Select a conversation to start chatting</p>
+        </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full bg-background">
-      <CardHeader className="flex flex-row items-center justify-between border-b p-4">
+      <div className="flex items-center justify-between border-b p-4 flex-shrink-0">
         <div className="flex items-center gap-3">
           <Avatar className="h-10 w-10 border">
-            <AvatarImage src="https://picsum.photos/seed/p1/40/40" alt="John Doe" data-ai-hint="man portrait"/>
-            <AvatarFallback>JD</AvatarFallback>
+            <AvatarImage src={activeChat.avatar} alt={activeChat.name} data-ai-hint={activeChat.ai_hint}/>
+            <AvatarFallback>{activeChat.name.charAt(0)}</AvatarFallback>
           </Avatar>
           <div>
-            <h3 className="font-semibold text-lg">John Doe</h3>
+            <h3 className="font-semibold text-lg">{activeChat.name}</h3>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span className="h-2 w-2 rounded-full bg-green-500"></span>
-              Online
+              <span className={cn("h-2 w-2 rounded-full", activeChat.active ? "bg-green-500" : "bg-gray-400")}></span>
+              {activeChat.active ? "Online" : "Offline"}
             </div>
           </div>
         </div>
@@ -85,9 +108,9 @@ export function ChatView() {
             <span className="font-medium">AI Mode</span>
           </Label>
         </div>
-      </CardHeader>
-      <CardContent className="flex-1 p-0">
-        <ScrollArea className="h-[calc(100vh-20rem)] p-6">
+      </div>
+      <div className="flex-1 p-0 overflow-hidden">
+        <ScrollArea className="h-full p-6" ref={scrollAreaRef}>
             {isLoading ? (
                 <div className="space-y-4">
                     <Skeleton className="h-16 w-3/4 ml-auto rounded-lg" />
@@ -105,7 +128,7 @@ export function ChatView() {
                                 message.sender === 'user' ? "ml-auto bg-primary text-primary-foreground" : "bg-muted"
                             )}
                         >
-                            {message.content}
+                            <p className='leading-snug'>{message.content}</p>
                             <span className={cn("text-xs self-end", message.sender === 'user' ? 'text-primary-foreground/70' : 'text-muted-foreground')}>
                                {formatTimestamp(message.timestamp)}
                             </span>
@@ -114,19 +137,27 @@ export function ChatView() {
                 </div>
             )}
         </ScrollArea>
-      </CardContent>
-      <CardFooter className="p-4 border-t">
-        <form className="flex w-full items-center space-x-2">
+      </div>
+      <div className="p-4 border-t flex-shrink-0">
+        <form className="flex w-full items-center space-x-2" onSubmit={handleSendMessage}>
           <Textarea
             placeholder="Type your message here..."
             className="flex-1 min-h-[40px] max-h-32 resize-none"
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage(e);
+                }
+            }}
           />
           <Button type="submit" size="icon" className="flex-shrink-0 bg-accent hover:bg-accent/90">
             <Send className="h-4 w-4 text-accent-foreground" />
             <span className="sr-only">Send</span>
           </Button>
         </form>
-      </CardFooter>
+      </div>
     </div>
   )
 }

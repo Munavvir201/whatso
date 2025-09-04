@@ -2,54 +2,49 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase-admin';
 import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
+import { FieldValue } from 'firebase-admin/firestore';
 
 /**
  * Handles webhook verification from Meta.
- * This simplified function checks if the incoming 'hub.verify_token' matches
- * the one stored in the database. If it matches, it responds with the
- * 'hub.challenge' value to verify the webhook.
+ * This function validates the incoming 'hub.verify_token' against the one
+ * stored in Firestore and updates the user's status to 'verified'.
  */
 export async function GET(req: NextRequest, { params }: { params: { userId: string } }) {
   const { userId } = params;
   const { searchParams } = new URL(req.url);
 
-  const incomingToken = searchParams.get('hub.verify_token');
+  const mode = searchParams.get('hub.mode');
+  const token = searchParams.get('hub.verify_token');
   const challenge = searchParams.get('hub.challenge');
 
-  console.log(`--- Simplified Webhook Verification for User: ${userId} ---`);
-  console.log(`  - Incoming Token: ${incomingToken}`);
+  console.log(`--- Webhook Verification for User: ${userId} ---`);
 
-  // The token and challenge are required for verification.
-  if (!incomingToken || !challenge) {
-    console.error('🔴 Verification FAILED: Missing hub.verify_token or hub.challenge.');
-    return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
+  if (mode !== 'subscribe' || !token || !challenge) {
+    console.error('🔴 Verification FAILED: Missing or invalid parameters.');
+    return NextResponse.json({ error: 'Invalid verification request' }, { status: 400 });
   }
 
   try {
-    // Retrieve the stored webhook secret from Firestore.
     const userSettingsRef = db.collection('userSettings').doc(userId);
     const docSnap = await userSettingsRef.get();
-    const storedToken = docSnap.data()?.whatsapp?.webhookSecret;
 
-    if (!storedToken) {
-      console.error(`🔴 Verification FAILED: No webhook secret found in DB for user ${userId}.`);
-      return NextResponse.json({ error: 'Token not configured' }, { status: 404 });
+    if (!docSnap.exists || !docSnap.data()?.whatsapp?.webhookSecret) {
+      console.error(`🔴 Verification FAILED: No webhook secret found for user ${userId}.`);
+      return NextResponse.json({ error: 'User settings or webhook secret not found' }, { status: 404 });
     }
 
-    console.log(`  - Comparing with stored token.`);
+    const storedToken = docSnap.data()?.whatsapp.webhookSecret;
 
-    // --- Main Verification Logic ---
-    if (incomingToken === storedToken) {
-      // Tokens match. Respond with the challenge to verify the webhook.
-      console.log(`✅ Verification SUCCESS: Tokens match. Responding with challenge.`);
+    if (token === storedToken) {
+      console.log(`✅ Verification SUCCESS: Tokens match.`);
+      // Update status to 'verified' upon successful verification
+      await userSettingsRef.set({ whatsapp: { status: 'verified' } }, { merge: true });
       return new NextResponse(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
     } else {
-      // Tokens do not match.
       console.error(`🔴 Verification FAILED: Token mismatch.`);
-      return NextResponse.json({ error: 'Token mismatch' }, { status: 403 });
+      return NextResponse.json({ error: 'Verification token mismatch' }, { status: 403 });
     }
   } catch (error) {
-    // This will catch any errors during database access, including Firebase init issues.
     console.error('🔴 UNEXPECTED ERROR during verification:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
@@ -60,63 +55,78 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
  */
 export async function POST(req: NextRequest, { params }: { params: { userId: string } }) {
     const { userId } = params;
-    const body = await req.json();
-
-    console.log('--- New WhatsApp Message Received ---', JSON.stringify(body, null, 2));
-
-    if (body.object !== 'whatsapp_business_account') {
-        console.log('Discarding: Not a WhatsApp business account message.');
-        return NextResponse.json({ status: 'not a whatsapp message' }, { status: 200 });
-    }
     
-    const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+    try {
+        const body = await req.json();
+        console.log('--- New WhatsApp Message Received ---', JSON.stringify(body, null, 2));
 
-    if (!message) {
-        console.log('Discarding: No message found in payload.');
-        return NextResponse.json({ status: 'no message found' }, { status: 200 });
+        const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+
+        if (body.object !== 'whatsapp_business_account' || !message) {
+            console.log('Discarding: Not a valid WhatsApp message payload.');
+            return NextResponse.json({ status: 'not a valid whatsapp message' }, { status: 200 });
+        }
+
+        // Respond to Meta immediately as required
+        processMessageAsync(userId, message).catch(err => {
+            console.error("Error in async message processing:", err);
+        });
+
+        return NextResponse.json({ status: 'ok' }, { status: 200 });
+
+    } catch (error) {
+        console.error('🔴 FAILED TO PARSE WEBHOOK BODY:', error);
+        return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
     }
-
-    // Respond to Meta immediately as required
-    const response = NextResponse.json({ status: 'ok' }, { status: 200 });
-
-    // Process the message in the background
-    processMessageAsync(userId, message);
-
-    return response;
 }
 
 /**
- * Processes a WhatsApp message asynchronously.
+ * Processes a WhatsApp message asynchronously, including conversation history.
  */
 async function processMessageAsync(userId: string, message: any) {
+    if (message.type !== 'text' || !message.text?.body) {
+        console.log('Skipping processing: Message is not a text message.');
+        return;
+    }
+
+    const from = message.from; // Customer's phone number
+    const messageBody = message.text.body;
+
     try {
         const userSettingsRef = db.collection('userSettings').doc(userId);
         const docSnap = await userSettingsRef.get();
-
-        if (!docSnap.exists) {
-            console.error(`🔴 Message Processing FAILED: Settings not found for user ${userId}.`);
-            return;
-        }
         const whatsappSettings = docSnap.data()?.whatsapp;
 
         if (!whatsappSettings?.phoneNumberId || !whatsappSettings?.accessToken) {
-            console.error(`🔴 Message Processing FAILED: Missing WhatsApp credentials for user ${userId}.`);
+            console.error(`🔴 AI Processing FAILED: Missing WhatsApp credentials for user ${userId}.`);
             return;
         }
 
-        if (!message.text?.body) {
-            console.log('Skipping AI processing: Message is not a text message.');
-            return;
-        }
+        // --- Conversation History Management ---
+        const conversationRef = db.collection('users').doc(userId).collection('conversations').doc(from);
+        const conversationSnap = await conversationRef.get();
+        let history = conversationSnap.exists ? conversationSnap.data()?.history || [] : [];
+        
+        // Add new user message to history
+        const userMessageEntry = { role: 'user', content: messageBody };
+        history.push(userMessageEntry);
 
-        // TODO: In a real app, you would store and retrieve conversation history
-        const conversationHistory = "User: " + message.text.body;
-
+        // Call AI with current message and history
         const aiResponse = await automateWhatsAppChat({
-            message: message.text.body,
-            conversationHistory: conversationHistory,
+            message: messageBody,
+            conversationHistory: history.map((h: any) => `${h.role}: ${h.content}`).join('\n'),
         });
+        
+        const aiMessageEntry = { role: 'ai', content: aiResponse.response };
+        history.push(aiMessageEntry);
 
+        // --- Persist Conversation ---
+        await conversationRef.set({
+            history: history,
+            lastUpdated: FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        // --- Send Response via WhatsApp API ---
         await fetch(`https://graph.facebook.com/v20.0/${whatsappSettings.phoneNumberId}/messages`, {
             method: 'POST',
             headers: {
@@ -125,14 +135,14 @@ async function processMessageAsync(userId: string, message: any) {
             },
             body: JSON.stringify({
                 messaging_product: 'whatsapp',
-                to: message.from,
+                to: from,
                 text: { body: aiResponse.response },
             }),
         });
 
-        console.log('✅ Successfully sent AI response to WhatsApp user.');
+        console.log(`✅ Successfully sent AI response to ${from}.`);
 
     } catch (error) {
-        console.error("🔴 UNEXPECTED ERROR processing message and sending reply:", error);
+        console.error(`🔴 UNEXPECTED ERROR processing message for ${from}:`, error);
     }
 }

@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useEffect, useState } from 'react';
@@ -10,17 +11,7 @@ import { Badge } from "./ui/badge"
 import { Skeleton } from "./ui/skeleton"
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-
-interface Chat {
-  id: string;
-  name: string;
-  avatar: string;
-  message: string;
-  time: string;
-  unread: number;
-  active: boolean;
-  ai_hint: string;
-}
+import type { Chat } from '@/types/chat';
 
 const useChatList = () => {
     const [chats, setChats] = useState<Chat[]>([]);
@@ -34,10 +25,6 @@ const useChatList = () => {
             querySnapshot.forEach((doc) => {
                 chatsData.push({ id: doc.id, ...doc.data() } as Chat);
             });
-            // Temp: mark first chat as active
-            if (chatsData.length > 0) {
-              chatsData[0].active = true;
-            }
             setChats(chatsData);
             setIsLoading(false);
         }, (error) => {
@@ -51,7 +38,7 @@ const useChatList = () => {
     return { chats, isLoading };
 };
 
-export function ChatList() {
+export function ChatList({ activeChatId, setActiveChatId }: { activeChatId: string | null, setActiveChatId: (id: string) => void }) {
   const { chats, isLoading } = useChatList();
   
   return (
@@ -81,16 +68,17 @@ export function ChatList() {
             chats.map((chat) => (
               <button
                 key={chat.id}
+                onClick={() => setActiveChatId(chat.id)}
                 className={cn(
                   "w-full text-left p-3 rounded-lg flex items-start gap-3 transition-colors",
-                  chat.active ? "bg-primary/10" : "hover:bg-muted"
+                  chat.id === activeChatId ? "bg-primary/10" : "hover:bg-muted"
                 )}
               >
                 <Avatar className="h-10 w-10 border">
                   <AvatarImage src={chat.avatar} alt={chat.name} data-ai-hint={chat.ai_hint} />
                   <AvatarFallback>{chat.name.charAt(0)}</AvatarFallback>
                 </Avatar>
-                <div className="flex-1">
+                <div className="flex-1 overflow-hidden">
                   <div className="flex justify-between items-center">
                     <h3 className="font-semibold text-sm">{chat.name}</h3>
                     <span className="text-xs text-muted-foreground">{chat.time}</span>
