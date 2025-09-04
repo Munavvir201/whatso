@@ -55,6 +55,7 @@ function initializeFirebaseAdmin() {
 // Call the function to ensure the SDK is ready.
 initializeFirebaseAdmin();
 
-// Export the initialized services.
+// Export the initialized services and other useful modules.
 export const db = admin.firestore();
 export const auth = admin.auth();
+export const FieldValue = admin.firestore.FieldValue;

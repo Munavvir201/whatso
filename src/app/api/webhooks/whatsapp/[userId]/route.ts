@@ -1,8 +1,8 @@
 
+
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/firebase-admin';
+import { db, FieldValue } from '@/lib/firebase-admin';
 import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
-import { FieldValue } from 'firebase-admin/firestore';
 
 /**
  * Handles webhook verification from Meta.
