@@ -1,6 +1,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
+import { db } from '@/lib/firebase-admin';
 
 // NOTE: You must configure the Firebase Admin SDK for this to work.
 // This involves setting up service account credentials in your deployment environment.
@@ -24,16 +25,6 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
   }
   
   try {
-    // Try to get Firebase Admin SDK
-    let db;
-    try {
-        const { db: firebaseDb } = await import('@/lib/firebase-admin');
-        db = firebaseDb;
-    } catch (firebaseError) {
-        console.error('Firebase Admin SDK not available for webhook verification:', firebaseError);
-        return NextResponse.json({ error: 'Firebase not configured' }, { status: 500 });
-    }
-
     const userSettingsRef = db.collection('userSettings').doc(userId);
     const docSnap = await userSettingsRef.get();
 
@@ -49,12 +40,9 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
     }
 
     if (mode === 'subscribe' && token === whatsappSettings.webhookSecret) {
-      await userSettingsRef.set({
-          whatsapp: {
-              ...whatsappSettings,
-              status: 'verified'
-          }
-      }, { merge: true });
+      await userSettingsRef.update({
+          'whatsapp.status': 'connected'
+      });
       
       console.log(`✅ Webhook verified successfully for userId: ${userId}`);
       return new NextResponse(challenge, { 
@@ -109,16 +97,6 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
  */
 async function processMessageAsync(userId: string, message: any, body: any) {
     try {
-        // Try to get Firebase Admin SDK
-        let db;
-        try {
-            const { db: firebaseDb } = await import('@/lib/firebase-admin');
-            db = firebaseDb;
-        } catch (firebaseError) {
-            console.error('Firebase Admin SDK not available for message processing:', firebaseError);
-            return;
-        }
-
         // Fetch user credentials
         const userSettingsRef = db.collection('userSettings').doc(userId);
         const docSnap = await userSettingsRef.get();
