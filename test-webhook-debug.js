@@ -5,6 +5,8 @@
  * This script helps debug webhook verification issues
  */
 
+
+
 const https = require('https');
 const http = require('http');
 
