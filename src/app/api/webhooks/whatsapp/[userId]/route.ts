@@ -234,10 +234,6 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
         if (isChatAiEnabled) {
             console.log('🤖 AI is enabled for this chat. Generating response...');
             
-            // Wait a moment to ensure Firestore is consistent, then fetch history
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            const conversationHistory = await getConversationHistory(userId, from);
-            
             const trainingContext = settings.trainingData || {};
             const clientData = trainingContext.clientData || "";
             const trainingInstructions = trainingContext.trainingInstructions || "";
@@ -252,12 +248,12 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
               
               CHAT FLOW:
               ${chatFlow}
-            `;
+            `.trim();
 
             const aiResult = await automateWhatsAppChat({
                 message: contentForAi,
-                conversationHistory,
-                clientData: fullTrainingData.trim(),
+                conversationHistory: "No history available.",
+                clientData: fullTrainingData,
             });
 
             if (aiResult.response) {
@@ -274,52 +270,5 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
         console.error(`🔴 UNEXPECTED ERROR processing message from ${from}:`, error);
     }
 }
-
-
-/**
- * Fetches the last 20 messages from a conversation to provide context to the AI.
- */
-async function getConversationHistory(userId: string, conversationId: string): Promise<string> {
-    const messagesRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages');
-    const messagesSnap = await messagesRef.orderBy('timestamp', 'desc').limit(20).get();
-
-    if (messagesSnap.empty) {
-        return "No previous conversation history.";
-    }
     
-    // Safely create a reversed copy of the documents for chronological order.
-    const orderedDocs = [...messagesSnap.docs].reverse();
-
-    return orderedDocs.map(doc => {
-        const data = doc.data();
-        const sender = data.sender === 'customer' ? 'Customer' : 'Agent';
-        let content;
-        
-        switch (data.type) {
-            case 'text':
-                content = data.content;
-                break;
-            case 'image':
-            case 'audio':
-            case 'video':
-            case 'document':
-            case 'sticker':
-                 if (data.caption) {
-                    content = `[${data.type} with caption: ${data.caption}]`;
-                } else if (data.type === 'document' && data.content) {
-                    content = `[Document: ${data.content}]`;
-                } else {
-                    content = `[${data.type} message]`;
-                }
-                break;
-            default:
-                content = data.content || `[Unsupported: ${data.type}]`;
-        }
-
-        return `${sender}: ${content}`;
-    }).join('\n');
-}
-
-    
-
     
