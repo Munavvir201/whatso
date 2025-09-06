@@ -17,9 +17,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { trainAIWithClientData } from "@/ai/flows/train-ai-with-client-data";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Loader2, UploadCloud } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { useTrainingContext } from "./training-context";
@@ -54,15 +53,15 @@ export function TrainingForm() {
   const watchedTrainingInstructions = form.watch("trainingInstructions");
   const watchedChatFlow = form.watch("chatFlow");
 
-  useState(() => {
+  useEffect(() => {
     setClientData(watchedClientData || "");
   }, [watchedClientData, setClientData]);
   
-  useState(() => {
+  useEffect(() => {
     setTrainingInstructions(watchedTrainingInstructions);
   }, [watchedTrainingInstructions, setTrainingInstructions]);
   
-  useState(() => {
+  useEffect(() => {
     setChatFlow(watchedChatFlow || "");
   }, [watchedChatFlow, setChatFlow]);
 
@@ -108,8 +107,8 @@ export function TrainingForm() {
                     control={form.control}
                     name="clientData"
                     render={({ field }) => (
-                    <FormItem className="flex-1 flex flex-col min-h-0">
-                        <FormLabel className="mt-4">Knowledge Base</FormLabel>
+                    <FormItem className="flex-1 flex flex-col min-h-0 mt-4">
+                        <FormLabel>Knowledge Base</FormLabel>
                         <FormDescription>
                         Paste in any text-based data like FAQs, product descriptions, or company info.
                         </FormDescription>
@@ -130,8 +129,8 @@ export function TrainingForm() {
                     control={form.control}
                     name="websiteUrl"
                     render={({ field }) => (
-                    <FormItem>
-                        <FormLabel className="mt-4">Scrape Website</FormLabel>
+                    <FormItem className="mt-4">
+                        <FormLabel>Scrape Website</FormLabel>
                         <FormDescription>
                         Enter a URL to scrape the content for training data. (Note: This is a demo and does not actually scrape the site).
                         </FormDescription>
@@ -200,4 +199,3 @@ export function TrainingForm() {
     </div>
   );
 }
-
