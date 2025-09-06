@@ -2,34 +2,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, FieldValue } from '@/lib/firebase-admin';
 import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
-import axios from 'axios';
+import { getWhatsAppCredentials, downloadMediaAsDataUri, sendWhatsAppMessage } from '@/lib/whatsapp';
 import * as admin from 'firebase-admin';
 
-// Helper function to get a document reference from Firestore
-const getDocRef = (path: string) => db.doc(path);
-
-// Fetches a document's data from Firestore
-async function getDocument(ref: admin.firestore.DocumentReference) {
-  const docSnap = await ref.get();
-  if (!docSnap.exists) {
-    throw new Error(`Document does not exist at path: ${ref.path}`);
-  }
-  return docSnap.data();
-}
-
-async function getWhatsAppCredentials(userId: string) {
-    const userSettingsRef = getDocRef(`userSettings/${userId}`);
-    const userData = await getDocument(userSettingsRef);
-
-    if (!userData || !userData.whatsapp) {
-        throw new Error("WhatsApp credentials not configured for this user.");
-    }
-    const { phoneNumberId, accessToken, webhookSecret } = userData.whatsapp;
-    if (!phoneNumberId || !accessToken || !webhookSecret) {
-        throw new Error("Missing Phone Number ID, Access Token, or Webhook Secret.");
-    }
-    return { phoneNumberId, accessToken, webhookSecret };
-}
 
 /**
  * Handles webhook verification from Meta.
@@ -86,8 +61,9 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
         const body = await req.json();
         console.log('--- New WhatsApp Message Received ---', JSON.stringify(body, null, 2));
 
+        // Correctly parse the message object from the payload
         const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-
+        
         if (body.object !== 'whatsapp_business_account' || !message) {
             console.log('Discarding: Not a valid WhatsApp message payload.');
             return NextResponse.json({ status: 'not a valid whatsapp message' }, { status: 200 });
@@ -107,90 +83,25 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
 }
 
 /**
- * Sends a message via the WhatsApp API and stores it in Firestore.
- */
-export async function sendWhatsAppMessage(userId: string, to: string, messageData: any) {
-    console.log(`Attempting to send message to ${to} for user ${userId}`);
-    const { phoneNumberId, accessToken } = await getWhatsAppCredentials(userId);
-
-    const apiPayload = {
-      messaging_product: 'whatsapp',
-      to: to,
-      ...messageData
-    };
-
-    const response = await axios.post(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, apiPayload, {
-        headers: { 'Authorization': `Bearer ${accessToken}` },
-    });
-    
-    console.log('✅ Message sent successfully via API, now storing in DB.');
-
-    let contentToStore;
-    let captionToStore;
-
-    if (messageData.type === 'text') {
-        contentToStore = messageData.text.body;
-    } else {
-        contentToStore = messageData[messageData.type]?.filename || `[${messageData.type}]`;
-        captionToStore = messageData[messageData.type]?.caption;
-    }
-
-    await storeMessage(userId, to, {
-        sender: 'agent',
-        content: contentToStore,
-        caption: captionToStore,
-        timestamp: FieldValue.serverTimestamp(),
-        type: messageData.type,
-        whatsappMessageId: response.data.messages[0].id
-    });
-    
-    return response.data;
-}
-
-
-/**
- * Downloads media from Meta's servers and returns it as a base64 data URI.
- */
-async function downloadMediaAsDataUri(mediaId: string, accessToken: string): Promise<{ dataUri: string, mimeType: string }> {
-    const urlResponse = await axios.get(`https://graph.facebook.com/v20.0/${mediaId}`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-    });
-    if (!urlResponse.data.url) {
-        throw new Error(`Failed to get media URL for ID: ${mediaId}`);
-    }
-    const mediaUrl = urlResponse.data.url;
-    
-    const downloadResponse = await axios.get(mediaUrl, {
-        headers: { 'Authorization': `Bearer ${accessToken}` },
-        responseType: 'arraybuffer'
-    });
-
-    const mimeType = downloadResponse.headers['content-type'];
-    const base64Data = Buffer.from(downloadResponse.data, 'binary').toString('base64');
-    const dataUri = `data:${mimeType};base64,${base64Data}`;
-
-    return { dataUri, mimeType };
-}
-
-
-/**
  * Processes an incoming WhatsApp message: stores it, generates an AI response,
  * sends the response, and stores the response.
  */
 async function processMessageAsync(userId: string, message: any) {
     const from = message.from;
-    const conversationId = from;
-    const { accessToken } = await getWhatsAppCredentials(userId);
-
-    let incomingMessageContent = "";
-    const messageToStore: any = {
-        sender: 'customer',
-        timestamp: FieldValue.serverTimestamp(),
-        whatsappMessageId: message.id,
-        type: message.type
-    };
-
+    const conversationId = from; // The customer's phone number is the conversation ID
+    
     try {
+        const { accessToken } = await getWhatsAppCredentials(userId);
+
+        const messageToStore: any = {
+            sender: 'customer',
+            timestamp: FieldValue.serverTimestamp(),
+            whatsappMessageId: message.id,
+            type: message.type
+        };
+
+        let incomingMessageContent = "";
+
         switch (message.type) {
             case 'text':
                 messageToStore.content = message.text.body;
@@ -224,34 +135,38 @@ async function processMessageAsync(userId: string, message: any) {
                 console.log(`Skipping unsupported message type '${message.type}'.`);
                 messageToStore.content = `[Unsupported message type: ${message.type}]`;
                 incomingMessageContent = `[Unsupported message type]`;
-                break;
         }
 
         // Store the fully formed message in the database.
         await storeMessage(userId, conversationId, messageToStore);
-        console.log(`✅ Stored message from ${from}. Now generating AI response...`);
+        console.log(`✅ Stored message from ${from}. Now checking AI mode...`);
         
-        // Fetch context and generate AI response.
-        const conversationHistory = await getConversationHistory(userId, conversationId);
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
-        const clientData = userSettingsDoc.data()?.trainingData?.clientData || '';
+        const aiSettings = userSettingsDoc.data()?.ai;
+        const isAiEnabled = aiSettings?.status === 'verified'; // Simplified check
 
-        const aiResult = await automateWhatsAppChat({
-            message: incomingMessageContent,
-            conversationHistory,
-            clientData
-        });
+        if (isAiEnabled) {
+            console.log('🤖 AI is enabled. Generating response...');
+            const conversationHistory = await getConversationHistory(userId, conversationId);
+            const clientData = userSettingsDoc.data()?.trainingData?.clientData || '';
 
-        console.log(`🤖 AI Response generated: "${aiResult.response}"`);
+            const aiResult = await automateWhatsAppChat({
+                message: incomingMessageContent,
+                conversationHistory,
+                clientData
+            });
 
-        // Send the AI's response back to the user.
-        await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: aiResult.response } });
+            console.log(`🤖 AI Response generated: "${aiResult.response}"`);
+            await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: aiResult.response } });
+        } else {
+            console.log('🤖 AI is disabled. No response will be sent.');
+        }
 
     } catch (error) {
         console.error(`🔴 UNEXPECTED ERROR processing message from ${from}:`, error);
         // Optionally send an error message back to the user
         try {
-            await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: "Sorry, I encountered an error. Please try again." } });
+            await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: "Sorry, I encountered an error processing your message. Please try again." } });
         } catch (sendError) {
             console.error(`🔴 Failed to send error message to ${from}:`, sendError);
         }
@@ -276,11 +191,14 @@ async function storeMessage(userId: string, conversationId: string, messageData:
         customerNumber: conversationId,
     };
     
+    // Only set the name if the conversation is new
     if (!conversationDoc.exists()) {
-        conversationUpdate.customerName = `Customer ${conversationId.slice(-4)}`;
+        conversationUpdate.customerName = `Customer ${conversationId.slice(-4)}`; // Default name
         conversationUpdate.unreadCount = 1;
     } else {
-        conversationUpdate.unreadCount = FieldValue.increment(1);
+        if (messageData.sender === 'customer') {
+           conversationUpdate.unreadCount = FieldValue.increment(1);
+        }
     }
 
     batch.set(conversationRef, conversationUpdate, { merge: true });
@@ -289,6 +207,7 @@ async function storeMessage(userId: string, conversationId: string, messageData:
     batch.set(newMessageRef, messageData);
 
     await batch.commit();
+    console.log(`✅ Stored message in conversation ${conversationId} for user ${userId}`);
 }
 
 
@@ -297,16 +216,27 @@ async function storeMessage(userId: string, conversationId: string, messageData:
  */
 async function getConversationHistory(userId: string, conversationId: string): Promise<string> {
     const messagesRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages');
-    const messagesSnap = await messagesRef.orderBy('timestamp', 'asc').limit(20).get();
+    // Get the most recent 20 messages to provide as context to the AI.
+    const messagesSnap = await messagesRef.orderBy('timestamp', 'desc').limit(20).get();
 
     if (messagesSnap.empty) {
         return "No previous conversation history.";
     }
 
-    return messagesSnap.docs.map(doc => {
+    // Reverse the array to have the messages in chronological order for the AI
+    const orderedDocs = messagesSnap.docs.reverse();
+
+    return orderedDocs.map(doc => {
         const data = doc.data();
         const sender = data.sender === 'customer' ? 'Customer' : 'Agent';
-        const content = data.content || data.caption || `[${data.type} message]`;
+        let content;
+        if (data.type === 'text') {
+            content = data.content;
+        } else if (data.caption) {
+            content = `[${data.type} with caption: ${data.caption}]`;
+        } else {
+             content = `[${data.type} message]`;
+        }
         return `${sender}: ${content}`;
     }).join('\n');
 }
