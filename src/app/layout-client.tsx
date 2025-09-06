@@ -53,6 +53,7 @@ export default function RootLayoutClient({
     }
     
     return (
+      <div className="flex h-full">
         <SidebarProvider>
           <Sidebar>
             <SidebarHeader>
@@ -74,10 +75,13 @@ export default function RootLayoutClient({
                </div>
             </SidebarFooter>
           </Sidebar>
-          <SidebarInset>
+          <div className="flex-1 flex flex-col overflow-y-auto">
             <PageHeader />
-            {children}
-          </SidebarInset>
+            <main className="flex-1 p-4 md:p-6 flex flex-col">
+                {children}
+            </main>
+          </div>
         </SidebarProvider>
+      </div>
     )
 }

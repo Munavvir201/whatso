@@ -278,12 +278,12 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                         >
                             <div className={cn(
                                 "max-w-[75%] flex-col gap-2 rounded-lg px-3 py-2 text-sm",
-                                message.sender === 'agent' ? "bg-chat-outgoing text-chat-outgoing-foreground" : "bg-chat-incoming text-chat-incoming-foreground"
+                                message.sender === 'agent' ? "bg-blue-500 text-white" : "bg-gray-200 text-gray-900"
                             )}>
                                 <MessageContent message={message} />
                                 <span className={cn(
                                   "text-xs float-right mt-1",
-                                  message.sender === 'agent' ? 'text-chat-outgoing-foreground/70' : 'text-muted-foreground/80'
+                                  message.sender === 'agent' ? 'text-blue-200' : 'text-gray-500'
                                   )}>
                                    {formatTimestamp(message.timestamp)}
                                 </span>

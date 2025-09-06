@@ -63,7 +63,7 @@ export function ChatList({ activeChatId, setActiveChatId }: { activeChatId: stri
   const { chats, isLoading } = useChatList(user?.uid || null);
   
   return (
-    <div className="border-r bg-muted/20 flex flex-col">
+    <div className="border-r bg-muted/20 flex flex-col h-full">
       <div className="p-4 border-b">
         <h2 className="text-xl font-headline font-semibold">Conversations</h2>
         <div className="relative mt-4">
