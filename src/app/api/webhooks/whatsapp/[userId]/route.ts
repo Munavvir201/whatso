@@ -152,8 +152,7 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
         console.log(`✅ Stored message from ${from}. Now checking AI mode...`);
         
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
-        const aiSettings = userSettingsDoc.data()?.ai;
-        const isAiEnabled = aiSettings?.status === 'verified'; // Simplified check
+        const isAiEnabled = userSettingsDoc.data()?.ai?.status === 'verified';
 
         if (isAiEnabled) {
             console.log('🤖 AI is enabled. Generating response...');
@@ -235,7 +234,8 @@ async function getConversationHistory(userId: string, conversationId: string): P
     }
 
     // Reverse the array to have the messages in chronological order for the AI
-    const orderedDocs = messagesSnap.docs.reverse();
+    // Use spread `...` to create a shallow copy before reversing to avoid mutating the original array.
+    const orderedDocs = [...messagesSnap.docs].reverse();
 
     return orderedDocs.map(doc => {
         const data = doc.data();
@@ -254,5 +254,6 @@ async function getConversationHistory(userId: string, conversationId: string): P
         return `${sender}: ${content}`;
     }).join('\n');
 }
+
 
 
