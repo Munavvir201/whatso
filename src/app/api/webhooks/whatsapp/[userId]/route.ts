@@ -90,110 +90,132 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
 }
 
 /**
- * Atomically saves a message and updates conversation metadata in a single transaction.
- * This is the most robust way to ensure data consistency.
+ * Saves the initial message to the database immediately upon receipt.
+ * For media, it saves a placeholder and triggers background processing.
  */
-async function storeMessageInDb(userId: string, conversationId: string, messageData: any, lastMessageSummary: string, profileName?: string) {
+async function storeInitialMessage(userId: string, conversationId: string, message: any, profileName?: string): Promise<string> {
   const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
-  const messageRef = conversationRef.collection('messages').doc(); // Create a new document reference for the message
+  const messageRef = conversationRef.collection('messages').doc();
 
-  try {
-    const batch = db.batch();
+  const messageToStore: any = {
+    sender: 'customer',
+    whatsappMessageId: message.id,
+    type: message.type,
+    timestamp: FieldValue.serverTimestamp(),
+    status: 'received',
+  };
 
-    // 1. Create or update the conversation metadata
-    const conversationUpdate: any = {
-      lastUpdated: FieldValue.serverTimestamp(),
-      lastMessage: lastMessageSummary,
-      customerNumber: conversationId,
-      unreadCount: FieldValue.increment(1),
-    };
-    if (profileName) {
-      conversationUpdate.customerName = profileName;
-    }
-    batch.set(conversationRef, conversationUpdate, { merge: true });
+  let lastMessageSummary = "";
+  let incomingMessageContent = "";
 
-    // 2. Add the new message to the messages subcollection
-    const messageToSave = {
-        ...messageData,
-        timestamp: FieldValue.serverTimestamp(), // Use server timestamp for consistency
-    };
-    batch.set(messageRef, messageToSave);
+  switch (message.type) {
+    case 'text':
+      messageToStore.content = message.text.body;
+      lastMessageSummary = message.text.body;
+      incomingMessageContent = message.text.body;
+      break;
     
-    // 3. Commit the batch
-    await batch.commit();
-    console.log(`✅ Batch write successful for conversation ${conversationId}`);
+    case 'image':
+    case 'audio':
+    case 'video':
+    case 'document':
+    case 'sticker':
+      const mediaType = message.type;
+      messageToStore.status = 'processing';
+      
+      if (message[mediaType].caption) {
+        messageToStore.caption = message[mediaType].caption;
+        lastMessageSummary = `📷 ${message[mediaType].caption}`;
+        incomingMessageContent = `[${mediaType} with caption: ${message[mediaType].caption}]`;
+      } else if (mediaType === 'document' && message.document.filename) {
+        messageToStore.content = message.document.filename;
+        lastMessageSummary = `📄 ${message.document.filename}`;
+        incomingMessageContent = `[Document: ${message.document.filename}]`;
+      } else {
+        const typeEmojiMap = { image: '📷', audio: '🔊', video: '📹', sticker: '🎨' };
+        lastMessageSummary = `${typeEmojiMap[mediaType as keyof typeof typeEmojiMap] || '📎'} [${mediaType}]`;
+        incomingMessageContent = `[${mediaType} message]`;
+      }
+      break;
 
-  } catch (error) {
-    console.error(`🔴 BATCH WRITE FAILED for conversation ${conversationId}:`, error);
-    throw error; // Re-throw to be caught by the main processor
+    default:
+      lastMessageSummary = `[Unsupported: ${message.type}]`;
+      incomingMessageContent = lastMessageSummary;
+      messageToStore.content = lastMessageSummary;
   }
+
+  // --- ATOMIC WRITE ---
+  // This batch ensures the conversation metadata and the new message are written together.
+  const batch = db.batch();
+  
+  const conversationData: any = {
+    lastUpdated: FieldValue.serverTimestamp(),
+    lastMessage: lastMessageSummary,
+    customerNumber: conversationId,
+    unreadCount: FieldValue.increment(1),
+  };
+  if (profileName) {
+    conversationData.customerName = profileName;
+  }
+  
+  batch.set(conversationRef, conversationData, { merge: true });
+  batch.set(messageRef, messageToStore);
+  
+  await batch.commit();
+  console.log(`✅ Initial message ${messageRef.id} stored for conversation ${conversationId}.`);
+
+  return incomingMessageContent;
+}
+
+/**
+ * Handles media download and updates the message record in the background.
+ */
+async function processMediaInBackground(userId: string, conversationId: string, message: any, messageDocId: string) {
+    const mediaType = message.type;
+    const mediaId = message[mediaType].id;
+    
+    try {
+        const { accessToken } = await getWhatsAppCredentials(userId, ['accessToken']);
+        const { dataUri, mimeType } = await downloadMediaAsDataUri(mediaId, accessToken);
+        
+        const messageRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages').doc(messageDocId);
+        
+        await messageRef.update({
+            mediaUrl: dataUri,
+            mimeType: mimeType,
+            status: 'processed'
+        });
+
+        console.log(`✅ Media processed and updated for message ${messageDocId}.`);
+    } catch (error) {
+        console.error(`🔴 FAILED to process media for message ${messageDocId}:`, error);
+        const messageRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages').doc(messageDocId);
+        await messageRef.update({ status: 'failed_processing' });
+    }
 }
 
 /**
  * The main asynchronous function to process an incoming WhatsApp message.
+ * Follows a "Save First" architecture.
  */
 async function processMessageAsync(userId: string, message: any, contact: any) {
     const from = message.from;
     const profileName = contact?.profile?.name;
-    
+    const messageRef = db.collection('userSettings').doc(userId).collection('conversations').doc(from).collection('messages').doc();
+
     try {
-        const { accessToken } = await getWhatsAppCredentials(userId, ['accessToken']);
-        if (!accessToken) throw new Error("Cannot process message. Missing Access Token.");
-
-        const messageToStore: any = {
-            sender: 'customer',
-            whatsappMessageId: message.id,
-            type: message.type
-        };
-
-        let incomingMessageContent = "";
-        let lastMessageSummary = "";
-
-        switch (message.type) {
-            case 'text':
-                messageToStore.content = message.text.body;
-                incomingMessageContent = message.text.body;
-                lastMessageSummary = message.text.body;
-                break;
-            case 'image':
-            case 'audio':
-            case 'video':
-            case 'document':
-            case 'sticker':
-                const mediaType = message.type;
-                const mediaId = message[mediaType].id;
-                // Download media and get data URI for storage
-                const { dataUri, mimeType } = await downloadMediaAsDataUri(mediaId, accessToken);
-                
-                messageToStore.mediaUrl = dataUri;
-                messageToStore.mimeType = mimeType;
-                
-                if (message[mediaType].caption) {
-                    messageToStore.caption = message[mediaType].caption;
-                    incomingMessageContent = `[${mediaType} with caption: ${message[mediaType].caption}]`;
-                    lastMessageSummary = `📷 ${message[mediaType].caption}`;
-                } else if (mediaType === 'document' && message.document.filename) {
-                     messageToStore.content = message.document.filename;
-                     incomingMessageContent = `[Document: ${message.document.filename}]`;
-                     lastMessageSummary = `📄 ${message.document.filename}`;
-                } else {
-                     const typeEmojiMap = { image: '📷', audio: '🔊', video: '📹', sticker: '🎨' };
-                     lastMessageSummary = `${typeEmojiMap[mediaType as keyof typeof typeEmojiMap] || '📎'} [${mediaType}]`;
-                     incomingMessageContent = `[${mediaType} message]`;
-                }
-                break;
-            default:
-                console.log(`Unsupported message type received: ${message.type}`);
-                lastMessageSummary = `[Unsupported: ${message.type}]`;
-                incomingMessageContent = `[Unsupported message type]`;
-                messageToStore.content = lastMessageSummary;
-        }
-
-        // --- Execute the architectural flow ---
-        // 1. Atomically store the message and update metadata in one go.
-        await storeMessageInDb(userId, from, messageToStore, lastMessageSummary, profileName);
+        // --- STEP 1: Immediately store the initial message ---
+        const incomingMessageContent = await storeInitialMessage(userId, from, message, profileName);
         
-        // 2. Check if the AI agent is enabled and then generate a response.
+        // --- STEP 2: Handle media in the background (if applicable) ---
+        if (['image', 'audio', 'video', 'document', 'sticker'].includes(message.type)) {
+            // This is a non-blocking call
+            processMediaInBackground(userId, from, message, messageRef.id).catch(err => {
+                console.error("🔴 Background media processing failed:", err);
+            });
+        }
+        
+        // --- STEP 3: Check for AI and generate a response ---
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
         if (userSettingsDoc.data()?.ai?.status === 'verified') {
             console.log('🤖 AI is enabled. Generating response...');
@@ -216,6 +238,7 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
         console.error(`🔴 UNEXPECTED ERROR processing message from ${from}:`, error);
     }
 }
+
 
 /**
  * Fetches the last 20 messages from a conversation to provide context to the AI.
@@ -248,3 +271,5 @@ async function getConversationHistory(userId: string, conversationId: string): P
         return `${sender}: ${content}`;
     }).join('\n');
 }
+
+    
