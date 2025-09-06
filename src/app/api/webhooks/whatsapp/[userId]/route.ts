@@ -93,6 +93,7 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
             return NextResponse.json({ status: 'not a valid whatsapp message' }, { status: 200 });
         }
 
+        // Don't await this. Process in the background to respond to Meta quickly.
         processMessageAsync(userId, message).catch(err => {
             console.error("Error in async message processing:", err);
         });
@@ -176,6 +177,7 @@ async function processMessageAsync(userId: string, message: any) {
     };
     
     let incomingMessageContent = "";
+    let mediaInfo = null;
 
     switch (message.type) {
         case 'text':
@@ -188,24 +190,17 @@ async function processMessageAsync(userId: string, message: any) {
         case 'document':
         case 'sticker':
             const mediaType = message.type;
-            const mediaId = message[mediaType].id;
-            try {
-                const { dataUri, mimeType } = await downloadMediaAsDataUri(mediaId, accessToken);
-                messageToStore.mediaUrl = dataUri;
-                messageToStore.mimeType = mimeType;
+            mediaInfo = { type: mediaType, id: message[mediaType].id };
+            if (message[mediaType].caption) {
+                messageToStore.caption = message[mediaType].caption;
+                incomingMessageContent += ` with caption: ${message[mediaType].caption}`;
+            }
+             if (mediaType === 'document' && message.document.filename) {
+                messageToStore.content = message.document.filename;
+                incomingMessageContent = `[Document: ${message.document.filename}]`
+            } else {
+                messageToStore.content = `[${mediaType} received]`;
                 incomingMessageContent = `[${mediaType} received]`;
-                if (message[mediaType].caption) {
-                    messageToStore.caption = message[mediaType].caption;
-                    incomingMessageContent += ` with caption: ${message[mediaType].caption}`;
-                }
-                 if (mediaType === 'document' && message.document.filename) {
-                    messageToStore.content = message.document.filename;
-                    incomingMessageContent = `[Document: ${message.document.filename}]`
-                }
-            } catch (error) {
-                console.error(`🔴 FAILED to download ${mediaType} with ID ${mediaId}:`, error);
-                messageToStore.content = `[Failed to download ${mediaType}]`;
-                incomingMessageContent = `[Failed to process incoming ${mediaType}]`;
             }
             break;
         default:
@@ -214,8 +209,22 @@ async function processMessageAsync(userId: string, message: any) {
     }
     
     try {
-        await storeMessage(userId, conversationId, messageToStore, true);
-        console.log(`✅ Stored message from ${from}. Now generating AI response...`);
+        // Store the text/placeholder part of the message first for responsiveness
+        const messageRef = await storeMessage(userId, conversationId, messageToStore, true);
+        console.log(`✅ Stored placeholder for message from ${from}. Now processing media/AI...`);
+        
+        // If there's media, download it and update the message document
+        if (mediaInfo) {
+            try {
+                const { dataUri, mimeType } = await downloadMediaAsDataUri(mediaInfo.id, accessToken);
+                const mediaUpdate: any = { mediaUrl: dataUri, mimeType: mimeType };
+                await messageRef.update(mediaUpdate);
+                console.log(`✅ Media downloaded and message ${messageRef.id} updated.`);
+            } catch (error) {
+                console.error(`🔴 FAILED to download ${mediaInfo.type} with ID ${mediaInfo.id}:`, error);
+                await messageRef.update({ content: `[Failed to download ${mediaInfo.type}]` });
+            }
+        }
         
         const conversationHistory = await getConversationHistory(userId, conversationId);
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
@@ -238,8 +247,9 @@ async function processMessageAsync(userId: string, message: any) {
 
 /**
  * Stores a single message in a conversation and updates conversation metadata.
+ * Returns the DocumentReference of the new message.
  */
-async function storeMessage(userId: string, conversationId: string, messageData: any, isIncoming: boolean = false) {
+async function storeMessage(userId: string, conversationId: string, messageData: any, isIncoming: boolean = false): Promise<admin.firestore.DocumentReference> {
     const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
     
     const batch = db.batch();
@@ -261,6 +271,7 @@ async function storeMessage(userId: string, conversationId: string, messageData:
     batch.set(messagesRef, messageData);
 
     await batch.commit();
+    return messagesRef; // Return the reference to the newly created message document
 }
 
 
@@ -282,3 +293,5 @@ async function getConversationHistory(userId: string, conversationId: string): P
         return `${sender}: ${content}`;
     }).join('\n');
 }
+
+    
