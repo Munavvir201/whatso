@@ -71,7 +71,7 @@ export function ChatList({ activeChatId, setActiveChatId }: { activeChatId: stri
           <Input placeholder="Search conversations..." className="pl-10 bg-background" />
         </div>
       </div>
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         <div className="p-2 space-y-1">
           {isLoading ? (
             <div className="space-y-2 p-2">

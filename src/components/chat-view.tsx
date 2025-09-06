@@ -144,12 +144,12 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
     const { messages, isLoading } = useChatMessages(user?.uid || null, activeChat?.id || null);
     const [newMessage, setNewMessage] = useState("");
     const [isSending, setIsSending] = useState(false);
-    const scrollAreaViewportRef = useRef<HTMLDivElement>(null);
+    const scrollAreaRef = useRef<HTMLDivElement>(null);
     const { toast } = useToast();
 
     useEffect(() => {
-      if (scrollAreaViewportRef.current) {
-        scrollAreaViewportRef.current.scrollTo({ top: scrollAreaViewportRef.current.scrollHeight, behavior: 'smooth' });
+      if (scrollAreaRef.current) {
+        scrollAreaRef.current.scrollTo({ top: scrollAreaRef.current.scrollHeight });
       }
     }, [messages]);
 
@@ -254,7 +254,7 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         </div>
       </div>
       <div className="flex-1 min-h-0">
-        <ScrollArea className="h-full" viewportRef={scrollAreaViewportRef}>
+        <ScrollArea className="h-full" viewportRef={scrollAreaRef}>
             <div className="p-4 md:p-6">
                 {isLoading ? (
                     <div className="space-y-4">
