@@ -5,9 +5,9 @@ import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
 import { getWhatsAppCredentials, downloadMediaAsDataUri, sendWhatsAppMessage } from '@/lib/whatsapp';
 
 /**
- * Handles webhook verification from Meta.
+ * Handles webhook verification from Meta. This confirms that we own the endpoint.
  */
-export async function GET(req: NextRequest, { params }: { params: { userId: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { userId:string } }) {
   const { userId } = params;
   const { searchParams } = new URL(req.url);
 
@@ -28,6 +28,7 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
 
     if (token === storedToken) {
       console.log(`✅ Verification SUCCESS: Tokens match.`);
+      // Mark the user's WhatsApp setup as verified in the database
       const userSettingsRef = db.collection('userSettings').doc(userId);
       await userSettingsRef.set({ whatsapp: { status: 'verified' } }, { merge: true });
       return new NextResponse(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
@@ -54,6 +55,7 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
         const body = await req.json();
         console.log('--- New WhatsApp Webhook Event Received ---');
 
+        // According to Meta docs, the payload should be validated.
         if (body.object !== 'whatsapp_business_account') {
             console.log("Discarding: Not a WhatsApp business account update.");
             return NextResponse.json({ status: 'not a whatsapp business account event' }, { status: 200 });
@@ -66,6 +68,8 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
             return NextResponse.json({ status: 'no value object' }, { status: 200 });
         }
         
+        // This check is crucial. It filters out status updates (sent, delivered, read)
+        // and only processes actual incoming messages.
         if (!value.messages) {
              console.log("Discarding: Event is not a message (e.g., status update, read receipt).");
              return NextResponse.json({ status: 'event is not a message' }, { status: 200 });
@@ -74,10 +78,13 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
         const message = value.messages[0];
         const contact = value.contacts?.[0];
         
+        // Process the message asynchronously to ensure a quick response to Meta.
+        // Failing to respond quickly can cause Meta to disable the webhook.
         processMessageAsync(userId, message, contact).catch(err => {
             console.error("Error in async message processing:", err);
         });
 
+        // Immediately return a 200 OK to Meta.
         return NextResponse.json({ status: 'ok' }, { status: 200 });
 
     } catch (error) {
@@ -89,24 +96,26 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
 
 /**
  * Saves a single message document to the database with a server timestamp.
+ * This is a focused, atomic operation.
  */
 async function storeMessageInDb(userId: string, conversationId: string, messageData: any) {
   try {
     const messageToSave = {
         ...messageData,
-        timestamp: FieldValue.serverTimestamp(),
+        timestamp: FieldValue.serverTimestamp(), // Use server timestamp for consistency
     };
     await db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages').add(messageToSave);
     console.log(`✅ Message stored in DB for conversation ${conversationId}`);
   } catch (error) {
     console.error(`🔴 FAILED to store message in DB for conversation ${conversationId}:`, error);
-    throw error;
+    throw error; // Re-throw to be caught by the main processor
   }
 }
 
 
 /**
  * Updates the conversation metadata document (last message, unread count, etc.).
+ * Uses an "upsert" operation for efficiency.
  */
 async function updateConversationMetadata(userId: string, conversationId: string, lastMessageSummary: string, profileName?: string) {
   const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
@@ -115,26 +124,31 @@ async function updateConversationMetadata(userId: string, conversationId: string
       lastUpdated: FieldValue.serverTimestamp(),
       lastMessage: lastMessageSummary,
       customerNumber: conversationId,
-      unreadCount: FieldValue.increment(1)
+      unreadCount: FieldValue.increment(1) // Atomically increment the unread count
     };
 
+    // Only set the customer name if it's provided. This is crucial for new conversations.
     if (profileName) {
       conversationUpdate.customerName = profileName;
     }
 
+    // Use set with { merge: true } for an efficient "upsert".
+    // It creates the document if it doesn't exist, or updates it if it does.
     await conversationRef.set(conversationUpdate, { merge: true });
     console.log(`✅ Conversation metadata updated for ${conversationId}`);
   } catch (error) {
     console.error(`🔴 FAILED to update conversation metadata for ${conversationId}:`, error);
+    // We don't re-throw here because saving the message is more critical than updating the metadata.
   }
 }
 
 
 /**
- * Processes an incoming WhatsApp message: stores it, generates an AI response,
- * sends the response, and stores the response.
+ * The main asynchronous function to process an incoming WhatsApp message.
+ * It stores the message, generates an AI response, sends it, and stores the response.
  */
 async function processMessageAsync(userId: string, message: any, contact: any) {
+    // The 'from' field (customer's number) is used as the unique conversation ID.
     const from = message.from;
     const profileName = contact?.profile?.name;
     
@@ -148,9 +162,10 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
             type: message.type
         };
 
-        let incomingMessageContent = "";
-        let lastMessageSummary = "";
+        let incomingMessageContent = ""; // Content for the AI
+        let lastMessageSummary = ""; // Summary for the chat list
 
+        // Handle different message types
         switch (message.type) {
             case 'text':
                 messageToStore.content = message.text.body;
@@ -169,6 +184,7 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
                 messageToStore.mediaUrl = dataUri;
                 messageToStore.mimeType = mimeType;
                 
+                // Create summaries for display and AI context
                 if (message[mediaType].caption) {
                     messageToStore.caption = message[mediaType].caption;
                     incomingMessageContent = `[${mediaType} with caption: ${message[mediaType].caption}]`;
@@ -184,15 +200,20 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
                 }
                 break;
             default:
+                console.log(`Unsupported message type received: ${message.type}`);
                 messageToStore.content = `[Unsupported message type: ${message.type}]`;
                 incomingMessageContent = `[Unsupported message type]`;
                 lastMessageSummary = `[Unsupported]`;
         }
 
-        // Follow architecture: Store message first, then update metadata.
+        // --- Execute the architectural flow ---
+        // 1. Store the incoming message first to ensure it's saved.
         await storeMessageInDb(userId, from, messageToStore);
+        
+        // 2. Update the conversation metadata for the UI.
         await updateConversationMetadata(userId, from, lastMessageSummary, profileName);
         
+        // 3. Check if the AI agent is enabled and then generate a response.
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
         if (userSettingsDoc.data()?.ai?.status === 'verified') {
             console.log('🤖 AI is enabled. Generating response...');
@@ -206,9 +227,10 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
             });
 
             console.log(`🤖 AI Response generated: "${aiResult.response}"`);
+            // The sendWhatsAppMessage function will also store the agent's reply in the database.
             await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: aiResult.response } });
         } else {
-            console.log('🤖 AI is disabled. No response will be sent.');
+            console.log('🤖 AI is disabled for this user. No response will be sent.');
         }
 
     } catch (error) {
@@ -218,7 +240,7 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
 
 
 /**
- * Fetches the conversation history from Firestore.
+ * Fetches the last 20 messages from a conversation to provide context to the AI.
  */
 async function getConversationHistory(userId: string, conversationId: string): Promise<string> {
     const messagesRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages');
@@ -228,6 +250,7 @@ async function getConversationHistory(userId: string, conversationId: string): P
         return "No previous conversation history.";
     }
     
+    // Safely create a reversed copy of the documents for chronological order.
     const orderedDocs = [...messagesSnap.docs].reverse();
 
     return orderedDocs.map(doc => {
@@ -247,3 +270,5 @@ async function getConversationHistory(userId: string, conversationId: string): P
         return `${sender}: ${content}`;
     }).join('\n');
 }
+
+    
