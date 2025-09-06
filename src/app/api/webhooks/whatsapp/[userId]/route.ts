@@ -102,9 +102,10 @@ async function storeMessageAsync(userId: string, message: any) {
         const conversationId = from;
         const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
         
-        // Ensure conversation document exists
+        // Ensure conversation document exists and update its metadata
         await conversationRef.set({
             lastUpdated: FieldValue.serverTimestamp(),
+            lastMessage: messageBody,
             customerName: 'Customer ' + from.slice(-4), // Placeholder name
             customerNumber: from,
         }, { merge: true });
