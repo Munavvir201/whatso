@@ -5,10 +5,13 @@ import { db, FieldValue } from './firebase-admin';
 import axios from 'axios';
 import * as admin from 'firebase-admin';
 
+type CredentialKey = 'phoneNumberId' | 'accessToken' | 'webhookSecret';
+
 /**
- * Retrieves the WhatsApp credentials for a given user from Firestore.
+ * Retrieves specific WhatsApp credentials for a given user from Firestore.
+ * This is more efficient as it only fetches what's needed.
  */
-export async function getWhatsAppCredentials(userId: string) {
+export async function getWhatsAppCredentials(userId: string, requiredKeys: CredentialKey[]) {
     const userSettingsRef = db.doc(`userSettings/${userId}`);
     const docSnap = await userSettingsRef.get();
 
@@ -21,12 +24,17 @@ export async function getWhatsAppCredentials(userId: string) {
         throw new Error(`WhatsApp credentials not configured for user ID: ${userId}`);
     }
 
-    const { phoneNumberId, accessToken, webhookSecret } = userData.whatsapp;
+    const credentials = userData.whatsapp;
+    const result: Partial<Record<CredentialKey, string>> = {};
+
+    for (const key of requiredKeys) {
+        if (!credentials[key]) {
+            throw new Error(`Missing required WhatsApp credential: ${key} for user ID: ${userId}`);
+        }
+        result[key] = credentials[key];
+    }
     
-    // This function returns all credentials, but downstream consumers should
-    // only check for the ones they specifically need.
-    
-    return { phoneNumberId, accessToken, webhookSecret };
+    return result as Record<CredentialKey, string>;
 }
 
 
@@ -57,7 +65,7 @@ async function storeSentMessage(userId: string, conversationId: string, messageD
  */
 export async function sendWhatsAppMessage(userId: string, to: string, messageData: { type: string, [key: string]: any }) {
     console.log(`Attempting to send ${messageData.type} message to ${to} for user ${userId}`);
-    const { phoneNumberId, accessToken } = await getWhatsAppCredentials(userId);
+    const { phoneNumberId, accessToken } = await getWhatsAppCredentials(userId, ['phoneNumberId', 'accessToken']);
 
      if (!phoneNumberId || !accessToken) {
         throw new Error("Cannot send message. Missing Phone Number ID or Access Token.");
@@ -128,3 +136,5 @@ export async function downloadMediaAsDataUri(mediaId: string, accessToken: strin
 
     return { dataUri, mimeType };
 }
+
+    

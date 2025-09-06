@@ -27,7 +27,7 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
   }
 
   try {
-    const { webhookSecret: storedToken } = await getWhatsAppCredentials(userId);
+    const { webhookSecret: storedToken } = await getWhatsAppCredentials(userId, ['webhookSecret']);
 
     if (!storedToken) {
         throw new Error("Webhook secret is not configured in the database.");
@@ -104,7 +104,7 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
     const conversationId = from; // The customer's phone number is the conversation ID
     
     try {
-        const { accessToken } = await getWhatsAppCredentials(userId);
+        const { accessToken } = await getWhatsAppCredentials(userId, ['accessToken']);
 
         if (!accessToken) {
             throw new Error("Cannot process message. Missing Access Token.");
@@ -262,3 +262,5 @@ async function getConversationHistory(userId: string, conversationId: string): P
         return `${sender}: ${content}`;
     }).join('\n');
 }
+
+    
