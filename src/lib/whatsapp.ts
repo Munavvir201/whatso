@@ -22,9 +22,9 @@ export async function getWhatsAppCredentials(userId: string) {
     }
 
     const { phoneNumberId, accessToken, webhookSecret } = userData.whatsapp;
-    if (!phoneNumberId || !accessToken || !webhookSecret) {
-        throw new Error("One or more WhatsApp credential fields are missing (Phone Number ID, Access Token, or Webhook Secret).");
-    }
+    
+    // This function returns all credentials, but downstream consumers should
+    // only check for the ones they specifically need.
     
     return { phoneNumberId, accessToken, webhookSecret };
 }
@@ -58,6 +58,10 @@ async function storeSentMessage(userId: string, conversationId: string, messageD
 export async function sendWhatsAppMessage(userId: string, to: string, messageData: { type: string, [key: string]: any }) {
     console.log(`Attempting to send ${messageData.type} message to ${to} for user ${userId}`);
     const { phoneNumberId, accessToken } = await getWhatsAppCredentials(userId);
+
+     if (!phoneNumberId || !accessToken) {
+        throw new Error("Cannot send message. Missing Phone Number ID or Access Token.");
+    }
 
     const apiPayload = {
       messaging_product: 'whatsapp',
