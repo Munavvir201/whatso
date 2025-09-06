@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils"
 import { Skeleton } from './ui/skeleton';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
-import { collection, onSnapshot, query, orderBy, Timestamp, doc, getDoc, setDoc, writeBatch, FieldValue, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, Timestamp, doc, getDoc, setDoc, writeBatch, serverTimestamp, addDoc } from 'firebase/firestore';
 import type { Message, Chat } from '@/types/chat';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
@@ -52,7 +52,7 @@ const useChatMessages = (userId: string | null, chatId: string | null) => {
         return () => unsubscribe();
     }, [chatId, userId]);
 
-    return { messages, isLoading };
+    return { messages, isLoading, setMessages };
 };
 
 const formatTimestamp = (timestamp: Timestamp | Date | null) => {
@@ -193,7 +193,7 @@ const MessageContent = ({ message }: { message: Message }) => {
 
 export function ChatView({ activeChat, onBack }: ChatViewProps) {
     const { user } = useAuth();
-    const { messages, isLoading } = useChatMessages(user?.uid || null, activeChat?.id || null);
+    const { messages, isLoading, setMessages } = useChatMessages(user?.uid || null, activeChat?.id || null);
     const [newMessage, setNewMessage] = useState("");
     const [isSending, setIsSending] = useState(false);
     const viewportRef = useRef<HTMLDivElement>(null);
@@ -250,14 +250,15 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         }
     };
     
-    const storeMessageInDb = async (messageData: Omit<Message, 'id' | 'timestamp'> & { timestamp: FieldValue, whatsappMessageId: string }) => {
-        if (!user || !activeChat) return;
+    const storeMessageInDb = async (messageData: Omit<Message, 'id' | 'timestamp' | 'sender' | 'type'> & {type: Message['type'], sender: Message['sender']}) => {
+         if (!user || !activeChat) return;
 
         const batch = writeBatch(db);
         const conversationRef = doc(db, "userSettings", user.uid, "conversations", activeChat.id);
-        const messagesRef = doc(collection(conversationRef, "messages"));
+        const messagesColRef = collection(conversationRef, "messages");
+        
+        batch.set(doc(messagesColRef), { ...messageData, timestamp: serverTimestamp()});
 
-        batch.set(messagesRef, messageData);
         batch.update(conversationRef, {
             lastMessage: messageData.caption || messageData.content || `[${messageData.type}]`,
             lastUpdated: serverTimestamp(),
@@ -270,17 +271,26 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         e.preventDefault();
         if (!newMessage.trim() || !activeChat || !user) return;
         
-        setIsSending(true);
         const messageContent = newMessage;
         setNewMessage("");
+
+        const optimisticMessage: Message = {
+            id: `temp-${Date.now()}`,
+            sender: 'agent',
+            content: messageContent,
+            type: 'text',
+            timestamp: new Date(),
+        };
+
+        setMessages(prev => [...prev, optimisticMessage]);
+        setIsSending(true);
 
         try {
             const response = await sendWhatsAppTextMessage(user.uid, activeChat.id, messageContent);
             await storeMessageInDb({
-                sender: 'agent',
                 content: messageContent,
                 type: 'text',
-                timestamp: serverTimestamp(),
+                sender: 'agent',
                 whatsappMessageId: response.messages[0].id
             });
 
@@ -291,6 +301,7 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                 description: error.message,
             });
             setNewMessage(messageContent);
+            setMessages(prev => prev.filter(m => m.id !== optimisticMessage.id)); // remove optimistic on fail
         } finally {
             setIsSending(false);
         }
@@ -306,8 +317,6 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
             if (file.type.startsWith('image/')) type = 'image';
             else if (file.type.startsWith('video/')) type = 'video';
             else if (file.type.startsWith('audio/')) type = 'audio';
-
-            const response = await sendWhatsAppMediaMessage(user.uid, activeChat.id, file, type, file.name);
             
             const dataUri = await new Promise<string>((resolve, reject) => {
                 const reader = new FileReader();
@@ -316,44 +325,70 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                 reader.readAsDataURL(file);
             });
             
+             const optimisticMessage: Message = {
+                id: `temp-${Date.now()}`,
+                sender: 'agent',
+                content: file.name,
+                type: type,
+                mediaUrl: dataUri,
+                mimeType: file.type,
+                timestamp: new Date(),
+            };
+            setMessages(prev => [...prev, optimisticMessage]);
+
+            const response = await sendWhatsAppMediaMessage(user.uid, activeChat.id, file, type, file.name);
+            
             await storeMessageInDb({
                 sender: 'agent',
                 content: file.name,
                 type: type,
                 mediaUrl: dataUri,
                 mimeType: file.type,
-                timestamp: serverTimestamp(),
                 whatsappMessageId: response.messages[0].id,
             });
 
         } catch (error: any) {
             toast({ variant: "destructive", title: "Failed to send file", description: error.message });
+            setMessages(prev => prev.filter(m => m.id.startsWith('temp-')));
         } finally {
             setIsSending(false);
         }
         if (event.target) event.target.value = '';
     };
 
-    const sendRecording = async (audioBlob: Blob) => {
+    const sendRecording = useCallback(async (audioBlob: Blob) => {
         if (!audioBlob || !user || !activeChat) return;
 
         setIsSending(true);
         setIsRecording(false);
+        
+        const dataUri = await new Promise<string>(resolve => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(audioBlob);
+        });
+
+        const optimisticMessage: Message = {
+            id: `temp-${Date.now()}`,
+            sender: 'agent',
+            type: 'audio',
+            mediaUrl: dataUri,
+            mimeType: audioBlob.type,
+            content: 'Voice message',
+            timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, optimisticMessage]);
 
         try {
             const response = await sendWhatsAppMediaMessage(user.uid, activeChat.id, audioBlob, 'audio');
-            const dataUri = await new Promise<string>(resolve => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result as string);
-                reader.readAsDataURL(audioBlob);
-            });
-            await storeMessageInDb({ sender: 'agent', type: 'audio', mediaUrl: dataUri, mimeType: audioBlob.type, content: 'Voice message', timestamp: serverTimestamp(), whatsappMessageId: response.messages[0].id });
+            await storeMessageInDb({ sender: 'agent', type: 'audio', mediaUrl: dataUri, mimeType: audioBlob.type, content: 'Voice message', whatsappMessageId: response.messages[0].id });
         } catch(e: any) {
              toast({ variant: "destructive", title: "Failed to send voice message", description: e.message });
+             setMessages(prev => prev.filter(m => m.id !== optimisticMessage.id));
         } finally {
             setIsSending(false);
         }
-    }
+    }, [user, activeChat, toast, setMessages]);
 
     const startRecording = async () => {
         try {

@@ -109,25 +109,38 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
 /**
  * Sends a message via the WhatsApp API and stores it in Firestore.
  */
-async function sendWhatsAppMessage(userId: string, to: string, message: string) {
+export async function sendWhatsAppMessage(userId: string, to: string, messageData: any) {
     console.log(`Attempting to send message to ${to} for user ${userId}`);
     const { phoneNumberId, accessToken } = await getWhatsAppCredentials(userId);
 
-    const response = await axios.post(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
-        messaging_product: 'whatsapp',
-        to: to,
-        text: { body: message },
-    }, {
+    const apiPayload = {
+      messaging_product: 'whatsapp',
+      to: to,
+      ...messageData
+    };
+
+    const response = await axios.post(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, apiPayload, {
         headers: { 'Authorization': `Bearer ${accessToken}` },
     });
     
     console.log('✅ Message sent successfully via API, now storing in DB.');
 
+    let contentToStore;
+    let captionToStore;
+
+    if (messageData.type === 'text') {
+        contentToStore = messageData.text.body;
+    } else {
+        contentToStore = messageData[messageData.type]?.filename || `[${messageData.type}]`;
+        captionToStore = messageData[messageData.type]?.caption;
+    }
+
     await storeMessage(userId, to, {
         sender: 'agent',
-        content: message,
+        content: contentToStore,
+        caption: captionToStore,
         timestamp: FieldValue.serverTimestamp(),
-        type: 'text',
+        type: messageData.type,
         whatsappMessageId: response.data.messages[0].id
     });
     
@@ -238,7 +251,7 @@ async function processMessageAsync(userId: string, message: any) {
 
         console.log(`🤖 AI Response generated: "${aiResult.response}"`);
 
-        await sendWhatsAppMessage(userId, from, aiResult.response);
+        await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: aiResult.response } });
 
     } catch (error) {
         console.error(`🔴 UNEXPECTED ERROR processing message from ${from}:`, error);
