@@ -21,6 +21,10 @@ const TrainAIWithClientDataInputSchema = z.object({
     .describe(
       'Specific instructions on how to use the client data to improve the AI model responses. This should include the desired tone, style, and topics to focus on.'
     ),
+  chatFlow: z
+    .string()
+    .optional()
+    .describe('Instructions on how the conversation should flow.'),
 });
 
 export type TrainAIWithClientDataInput = z.infer<
@@ -54,6 +58,11 @@ const trainAIWithClientDataPrompt = ai.definePrompt({
 Client Data: {{{clientData}}}
 
 Training Instructions: {{{trainingInstructions}}}
+
+{{#if chatFlow}}
+Chat Flow:
+{{{chatFlow}}}
+{{/if}}
 
 Create a summary of the training process and the expected improvements to the AI model responses.
 
