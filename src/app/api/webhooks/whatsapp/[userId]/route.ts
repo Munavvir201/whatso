@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, FieldValue } from '@/lib/firebase-admin';
 import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
+import axios from 'axios';
 
 async function getWhatsAppCredentials(userId: string) {
     const userSettingsRef = db.collection('userSettings').doc(userId);
@@ -16,7 +17,6 @@ async function getWhatsAppCredentials(userId: string) {
     }
     return { phoneNumberId, accessToken, webhookSecret };
 }
-
 
 /**
  * Handles webhook verification from Meta.
@@ -84,7 +84,6 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
         }
 
         // Respond to Meta immediately as required, and process the message in the background.
-        // For now, we only store the message. AI response is disabled.
         processMessageAsync(userId, message).catch(err => {
             console.error("Error in async message processing:", err);
         });
@@ -99,29 +98,79 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
 
 
 /**
+ * Downloads media from Meta's servers and returns it as a base64 data URI.
+ */
+async function downloadMediaAsDataUri(mediaId: string, accessToken: string): Promise<{ dataUri: string, mimeType: string }> {
+    // 1. Get media URL
+    const urlResponse = await axios.get(`https://graph.facebook.com/v20.0/${mediaId}`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    const mediaUrl = urlResponse.data.url;
+    
+    // 2. Download the actual media file
+    const downloadResponse = await axios.get(mediaUrl, {
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+        responseType: 'arraybuffer'
+    });
+
+    const mimeType = downloadResponse.headers['content-type'];
+    const base64Data = Buffer.from(downloadResponse.data, 'binary').toString('base64');
+    const dataUri = `data:${mimeType};base64,${base64Data}`;
+
+    return { dataUri, mimeType };
+}
+
+
+/**
  * Processes an incoming WhatsApp message: stores it, generates an AI response,
  * sends the response, and stores the response.
- * NOTE: AI part is currently disabled.
  */
 async function processMessageAsync(userId: string, message: any) {
-    if (message.type !== 'text' || !message.text?.body) {
-        console.log('Skipping processing: Message is not a text message.');
-        return;
-    }
-
     const from = message.from; // Customer's phone number
-    const messageBody = message.text.body;
     const conversationId = from; // Use customer's number as the unique ID for the conversation
+    const { accessToken } = await getWhatsAppCredentials(userId);
+
+    const messageToStore: any = {
+        sender: 'customer',
+        timestamp: FieldValue.serverTimestamp(),
+        whatsappMessageId: message.id,
+        type: message.type
+    };
+
+    switch (message.type) {
+        case 'text':
+            messageToStore.content = message.text.body;
+            break;
+        case 'image':
+        case 'audio':
+        case 'video':
+        case 'document':
+        case 'sticker':
+            const mediaType = message.type;
+            const mediaId = message[mediaType].id;
+            try {
+                const { dataUri, mimeType } = await downloadMediaAsDataUri(mediaId, accessToken);
+                messageToStore.mediaUrl = dataUri;
+                messageToStore.mimeType = mimeType;
+                messageToStore.content = `[${mediaType} message]`;
+                if (message[mediaType].caption) {
+                    messageToStore.caption = message[mediaType].caption;
+                }
+                 if (mediaType === 'document' && message.document.filename) {
+                    messageToStore.content = message.document.filename;
+                }
+            } catch (error) {
+                console.error(`🔴 FAILED to download ${mediaType} with ID ${mediaId}:`, error);
+                messageToStore.content = `[Failed to download ${mediaType}]`;
+            }
+            break;
+        default:
+            console.log(`Skipping processing: Unsupported message type '${message.type}'.`);
+            return;
+    }
     
     try {
-        // Store the incoming customer message
-        await storeMessage(userId, conversationId, {
-            sender: 'customer',
-            content: messageBody,
-            timestamp: FieldValue.serverTimestamp(),
-            whatsappMessageId: message.id,
-        });
-
+        await storeMessage(userId, conversationId, messageToStore);
         console.log(`✅ Successfully processed and stored message from ${from} for user ${userId}`);
 
     } catch (error) {
@@ -141,7 +190,7 @@ async function storeMessage(userId: string, conversationId: string, messageData:
     // Set/update conversation metadata
     batch.set(conversationRef, {
         lastUpdated: FieldValue.serverTimestamp(),
-        lastMessage: messageData.content,
+        lastMessage: messageData.caption || messageData.content,
         customerName: 'Customer ' + conversationId.slice(-4), // Placeholder name
         customerNumber: conversationId,
     }, { merge: true });

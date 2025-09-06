@@ -19,4 +19,8 @@ export interface Message {
   content: string;
   timestamp: Timestamp | Date; // Allow both for sending and receiving
   whatsappMessageId?: string;
+  type: 'text' | 'image' | 'audio' | 'video' | 'document' | 'sticker';
+  mediaUrl?: string; // URL to the media file (can be a data URI)
+  mimeType?: string;
+  caption?: string; // For media messages
 }

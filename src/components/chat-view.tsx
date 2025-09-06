@@ -8,14 +8,15 @@ import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { Bot, Pencil, Send, User } from "lucide-react"
+import { Bot, Pencil, Send, User, Paperclip, Mic } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Skeleton } from './ui/skeleton';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
-import { collection, onSnapshot, query, orderBy, Timestamp, addDoc, doc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, Timestamp, addDoc, doc, getDoc, setDoc, FieldValue } from 'firebase/firestore';
 import type { Message, Chat } from '@/types/chat';
 import { useToast } from '@/hooks/use-toast';
+import Image from 'next/image';
 
 const useChatMessages = (userId: string | null, chatId: string | null) => {
     const [messages, setMessages] = useState<Message[]>([]);
@@ -93,6 +94,46 @@ async function sendWhatsAppMessage(userId: string, to: string, message: string) 
 }
 
 
+const MessageContent = ({ message }: { message: Message }) => {
+    switch (message.type) {
+        case 'image':
+            return (
+                <div className="p-2">
+                    {message.mediaUrl && (
+                        <Image src={message.mediaUrl} alt={message.caption || 'Image'} width={300} height={300} className="rounded-md" />
+                    )}
+                    {message.caption && <p className="text-sm mt-2">{message.caption}</p>}
+                </div>
+            );
+        case 'audio':
+            return (
+                <audio controls src={message.mediaUrl} className="w-full">
+                    Your browser does not support the audio element.
+                </audio>
+            );
+        case 'video':
+             return (
+                <video controls src={message.mediaUrl} className="rounded-md max-w-xs">
+                    Your browser does not support the video element.
+                </video>
+            );
+        case 'document':
+             return (
+                <div className="flex items-center gap-3 bg-gray-200 dark:bg-gray-700 p-3 rounded-lg">
+                    <Paperclip className="h-6 w-6 text-gray-600 dark:text-gray-300" />
+                    <a href={message.mediaUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                        {message.content || 'Download Document'}
+                    </a>
+                </div>
+            );
+        case 'sticker':
+             return message.mediaUrl ? <Image src={message.mediaUrl} alt="Sticker" width={128} height={128} /> : <span>[Sticker]</span>
+        case 'text':
+        default:
+            return <p className='leading-snug'>{message.content}</p>;
+    }
+};
+
 export function ChatView({ activeChat }: { activeChat: Chat | null }) {
     const { user } = useAuth();
     const { messages, isLoading } = useChatMessages(user?.uid || null, activeChat?.id || null);
@@ -146,13 +187,14 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
             await addDoc(messagesRef, {
                 sender: 'agent',
                 content: messageContent,
-                timestamp: Timestamp.now()
+                timestamp: Timestamp.now(),
+                type: 'text'
             });
 
             // Also update the last message on the conversation
             await setDoc(conversationRef, {
                 lastMessage: messageContent,
-                lastUpdated: Timestamp.now(),
+                lastUpdated: Timestamp.now() as FieldValue,
             }, { merge: true });
 
         } catch (error: any) {
@@ -225,7 +267,7 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
                                 message.sender === 'agent' ? "ml-auto bg-primary text-primary-foreground" : "bg-muted"
                             )}
                         >
-                            <p className='leading-snug'>{message.content}</p>
+                            <MessageContent message={message} />
                             <span className={cn("text-xs self-end", message.sender === 'agent' ? 'text-primary-foreground/70' : 'text-muted-foreground')}>
                                {formatTimestamp(message.timestamp)}
                             </span>
@@ -235,25 +277,37 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
             )}
           </div>
       </ScrollArea>
-      <div className="p-4 border-t flex-shrink-0">
+      <div className="p-4 border-t flex-shrink-0 bg-background">
         <form className="flex w-full items-center space-x-2" onSubmit={handleSendMessage}>
-          <Textarea
-            placeholder="Type your message here... (Shift+Enter for new line)"
-            className="flex-1 min-h-[40px] max-h-32 resize-none"
-            value={newMessage}
-            disabled={isSending}
-            onChange={(e) => setNewMessage(e.target.value)}
-            onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage(e);
-                }
-            }}
-          />
-          <Button type="submit" size="icon" className="flex-shrink-0 bg-accent hover:bg-accent/90" disabled={isSending}>
-            <Send className="h-4 w-4 text-accent-foreground" />
-            <span className="sr-only">Send</span>
-          </Button>
+            <Button type="button" variant="ghost" size="icon" className="flex-shrink-0 text-muted-foreground">
+                <Paperclip className="h-5 w-5" />
+                <span className="sr-only">Attach file</span>
+            </Button>
+            <Textarea
+                placeholder="Type your message here... (Shift+Enter for new line)"
+                className="flex-1 min-h-[40px] max-h-32 resize-none"
+                value={newMessage}
+                disabled={isSending}
+                onChange={(e) => setNewMessage(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage(e);
+                    }
+                }}
+            />
+            {newMessage ? (
+                <Button type="submit" size="icon" className="flex-shrink-0 bg-accent hover:bg-accent/90" disabled={isSending}>
+                    <Send className="h-4 w-4 text-accent-foreground" />
+                    <span className="sr-only">Send</span>
+                </Button>
+            ) : (
+                <Button type="button" variant="ghost" size="icon" className="flex-shrink-0 text-muted-foreground">
+                    <Mic className="h-5 w-5" />
+                    <span className="sr-only">Record voice message</span>
+                </Button>
+            )}
+            
         </form>
       </div>
     </div>
