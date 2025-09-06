@@ -179,10 +179,8 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         setNewMessage("");
 
         try {
-            // 1. Send via WhatsApp API
             await sendWhatsAppMessage(user.uid, activeChat.id, messageContent);
 
-            // 2. Save to Firestore
             const conversationRef = doc(db, "userSettings", user.uid, "conversations", activeChat.id);
             const messagesRef = collection(conversationRef, "messages");
             
@@ -193,7 +191,6 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                 type: 'text'
             });
 
-            // Also update the last message on the conversation
             await setDoc(conversationRef, {
                 lastMessage: messageContent,
                 lastUpdated: Timestamp.now() as FieldValue,
@@ -205,7 +202,6 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                 title: "Failed to Send Message",
                 description: error.message,
             });
-            // If sending failed, put the message back in the input box
             setNewMessage(messageContent);
         } finally {
             setIsSending(false);
@@ -214,7 +210,7 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
 
   if (!activeChat) {
     return (
-        <div className="hidden md:flex flex-col h-full items-center justify-center bg-muted/40 text-muted-foreground">
+        <div className="hidden md:flex flex-col h-full items-center justify-center bg-muted/20 text-muted-foreground">
             <MessageSquare size={48} />
             <p className="mt-4 text-lg">Select a conversation to start chatting</p>
         </div>
@@ -222,8 +218,8 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-muted/40">
-      <div className="flex items-center justify-between border-b p-3 flex-shrink-0 bg-background">
+    <div className="flex flex-col h-full bg-muted/20">
+      <div className="flex items-center justify-between border-b p-3 flex-shrink-0 bg-background z-10">
          <div className="flex items-center gap-3">
            {onBack && (
             <Button variant="ghost" size="icon" onClick={onBack} className="md:hidden">
@@ -257,44 +253,48 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
           </Button>
         </div>
       </div>
-      <ScrollArea className="flex-1" viewportRef={scrollAreaViewportRef}>
-          <div className="p-4 md:p-6">
-            {isLoading ? (
-                <div className="space-y-4">
-                    <Skeleton className="h-16 w-3/4 ml-auto rounded-lg" />
-                    <Skeleton className="h-20 w-3/4 rounded-lg" />
-                    <Skeleton className="h-12 w-1/2 ml-auto rounded-lg" />
-                    <Skeleton className="h-24 w-4/5 rounded-lg" />
-                </div>
-            ) : (
-                <div className="space-y-2">
-                    {messages.map((message) => (
-                        <div
-                            key={message.id}
-                            className={cn(
-                                "flex w-full",
-                                message.sender === 'agent' ? "justify-end" : "justify-start"
-                            )}
-                        >
-                            <div className={cn(
-                                "max-w-[75%] flex-col gap-2 rounded-lg px-3 py-2 text-sm",
-                                message.sender === 'agent' ? "bg-blue-500 text-white" : "bg-gray-200 text-gray-900"
-                            )}>
-                                <MessageContent message={message} />
-                                <span className={cn(
-                                  "text-xs float-right mt-1",
-                                  message.sender === 'agent' ? 'text-blue-200' : 'text-gray-500'
-                                  )}>
-                                   {formatTimestamp(message.timestamp)}
-                                </span>
+      <div className="flex-1 min-h-0">
+        <ScrollArea className="h-full" viewportRef={scrollAreaViewportRef}>
+            <div className="p-4 md:p-6">
+                {isLoading ? (
+                    <div className="space-y-4">
+                        <Skeleton className="h-16 w-3/4 ml-auto rounded-lg" />
+                        <Skeleton className="h-20 w-3/4 rounded-lg" />
+                        <Skeleton className="h-12 w-1/2 ml-auto rounded-lg" />
+                        <Skeleton className="h-24 w-4/5 rounded-lg" />
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        {messages.map((message) => (
+                            <div
+                                key={message.id}
+                                className={cn(
+                                    "flex w-full",
+                                    message.sender === 'agent' ? "justify-end" : "justify-start"
+                                )}
+                            >
+                                <div className={cn(
+                                    "max-w-[75%] flex-col gap-2 rounded-lg px-3 py-2 text-sm shadow-sm",
+                                    message.sender === 'agent' 
+                                      ? "bg-chat-outgoing text-chat-outgoing-foreground" 
+                                      : "bg-chat-incoming text-chat-incoming-foreground"
+                                )}>
+                                    <MessageContent message={message} />
+                                    <span className={cn(
+                                    "text-xs float-right mt-1 opacity-70",
+                                     message.sender === 'agent' ? 'text-chat-outgoing-foreground' : 'text-chat-incoming-foreground'
+                                    )}>
+                                    {formatTimestamp(message.timestamp)}
+                                    </span>
+                                </div>
                             </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-          </div>
-      </ScrollArea>
-      <div className="p-4 border-t flex-shrink-0 bg-background">
+                        ))}
+                    </div>
+                )}
+            </div>
+        </ScrollArea>
+      </div>
+      <div className="p-4 border-t flex-shrink-0 bg-background/80 backdrop-blur-sm">
         <form className="flex w-full items-center space-x-2" onSubmit={handleSendMessage}>
             <Button type="button" variant="ghost" size="icon" className="flex-shrink-0 text-muted-foreground">
                 <Paperclip className="h-5 w-5" />
@@ -302,7 +302,7 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
             </Button>
             <Textarea
                 placeholder="Type your message here... (Shift+Enter for new line)"
-                className="flex-1 min-h-[40px] max-h-32 resize-none bg-muted/40 border-muted-foreground/20 focus-visible:ring-1"
+                className="flex-1 min-h-[40px] max-h-32 resize-none bg-background border-border focus-visible:ring-1"
                 value={newMessage}
                 disabled={isSending}
                 onChange={(e) => setNewMessage(e.target.value)}
