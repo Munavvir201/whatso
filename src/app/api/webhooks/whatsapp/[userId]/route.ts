@@ -142,6 +142,9 @@ async function downloadMediaAsDataUri(mediaId: string, accessToken: string): Pro
     const urlResponse = await axios.get(`https://graph.facebook.com/v20.0/${mediaId}`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
     });
+    if (!urlResponse.data.url) {
+        throw new Error(`Failed to get media URL for ID: ${mediaId}`);
+    }
     const mediaUrl = urlResponse.data.url;
     
     // 2. Download the actual media file
@@ -275,5 +278,3 @@ async function getConversationHistory(userId: string, conversationId: string): P
         return `${sender}: ${content}`;
     }).join('\n');
 }
-
-    
