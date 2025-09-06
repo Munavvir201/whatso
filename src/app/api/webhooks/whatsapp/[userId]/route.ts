@@ -101,14 +101,10 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
  */
 async function processMessageAsync(userId: string, message: any, contact: any) {
     const from = message.from;
-    const conversationId = from; // The customer's phone number is the conversation ID
     
     try {
         const { accessToken } = await getWhatsAppCredentials(userId, ['accessToken']);
-
-        if (!accessToken) {
-            throw new Error("Cannot process message. Missing Access Token.");
-        }
+        if (!accessToken) throw new Error("Cannot process message. Missing Access Token.");
 
         const messageToStore: any = {
             sender: 'customer',
@@ -150,21 +146,17 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
                 }
                 break;
             default:
-                console.log(`Skipping unsupported message type '${message.type}'.`);
                 messageToStore.content = `[Unsupported message type: ${message.type}]`;
                 incomingMessageContent = `[Unsupported message type]`;
         }
 
-        // Store the fully formed message in the database.
-        await storeMessage(userId, conversationId, messageToStore, contact?.profile?.name);
-        console.log(`✅ Stored message from ${from}. Now checking AI mode...`);
+        await storeMessage(userId, from, messageToStore, contact?.profile?.name);
+        console.log(`✅ Stored message from ${from}.`);
         
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
-        const isAiEnabled = userSettingsDoc.data()?.ai?.status === 'verified';
-
-        if (isAiEnabled) {
+        if (userSettingsDoc.data()?.ai?.status === 'verified') {
             console.log('🤖 AI is enabled. Generating response...');
-            const conversationHistory = await getConversationHistory(userId, conversationId);
+            const conversationHistory = await getConversationHistory(userId, from);
             const clientData = userSettingsDoc.data()?.trainingData?.clientData || '';
 
             const aiResult = await automateWhatsAppChat({
@@ -181,52 +173,58 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
 
     } catch (error) {
         console.error(`🔴 UNEXPECTED ERROR processing message from ${from}:`, error);
-        // Optionally send an error message back to the user
-        try {
-            await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: "Sorry, I encountered an error processing your message. Please try again." } });
-        } catch (sendError) {
-            console.error(`🔴 Failed to send error message to ${from}:`, sendError);
-        }
+        // Do not send an automated error response to avoid potential loops.
     }
 }
 
 
 /**
- * Stores a single message in a conversation and updates conversation metadata.
- * This function is now highly optimized to reduce latency.
+ * Atomically stores a message and updates conversation metadata using a transaction.
  */
 async function storeMessage(userId: string, conversationId: string, messageData: any, profileName?: string) {
-    const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
-    const messagesColRef = conversationRef.collection('messages');
-    
-    const batch = db.batch();
+  const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
+  const messagesColRef = conversationRef.collection('messages');
+  
+  try {
+    await db.runTransaction(async (transaction) => {
+      const convDoc = await transaction.get(conversationRef);
 
-    // This is an "upsert" operation. It will create the document if it doesn't exist,
-    // or merge the data if it does. This avoids a separate read operation.
-    const conversationUpdate: any = {
+      const conversationUpdate: any = {
         lastUpdated: FieldValue.serverTimestamp(),
         lastMessage: messageData.caption || messageData.content || `[${messageData.type}]`,
         customerNumber: conversationId,
-        unreadCount: FieldValue.increment(1) // Atomically increment the unread count.
-    };
-    
-    // If a profile name is provided by the webhook, set it.
-    // This will only set the name if the document is being created,
-    // or if the name doesn't exist yet, thanks to `merge: true`.
-    if (profileName) {
-        conversationUpdate.customerName = profileName;
-    }
+      };
 
-    batch.set(conversationRef, conversationUpdate, { merge: true });
+      if (!convDoc.exists) {
+        // Conversation is new
+        if (profileName) {
+            conversationUpdate.customerName = profileName;
+        } else {
+             conversationUpdate.customerName = `Customer ${conversationId.slice(-4)}`;
+        }
+        conversationUpdate.unreadCount = 1;
+        transaction.set(conversationRef, conversationUpdate);
+      } else {
+        // Conversation exists, increment unread count
+        conversationUpdate.unreadCount = FieldValue.increment(1);
+         if (profileName && !convDoc.data()?.customerName) {
+            conversationUpdate.customerName = profileName;
+        }
+        transaction.update(conversationRef, conversationUpdate);
+      }
 
-    // Add the new message to the `messages` subcollection.
-    const newMessageRef = messagesColRef.doc();
-    batch.set(newMessageRef, messageData);
+      const newMessageRef = messagesColRef.doc();
+      transaction.set(newMessageRef, messageData);
+    });
 
-    // Commit the batch. This is a single atomic operation.
-    await batch.commit();
-    console.log(`✅ Stored message in conversation ${conversationId} for user ${userId}`);
+    console.log(`✅ Transaction successful: Stored message in conversation ${conversationId}`);
+  } catch (error) {
+    console.error(`🔴 Transaction FAILED for conversation ${conversationId}:`, error);
+    // Re-throw the error to be caught by the calling function
+    throw error;
+  }
 }
+
 
 
 /**
