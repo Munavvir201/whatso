@@ -214,7 +214,7 @@ async function processMessageAsync(userId: string, message: any) {
     }
     
     try {
-        await storeMessage(userId, conversationId, messageToStore);
+        await storeMessage(userId, conversationId, messageToStore, true);
         console.log(`✅ Stored message from ${from}. Now generating AI response...`);
         
         const conversationHistory = await getConversationHistory(userId, conversationId);
@@ -239,17 +239,23 @@ async function processMessageAsync(userId: string, message: any) {
 /**
  * Stores a single message in a conversation and updates conversation metadata.
  */
-async function storeMessage(userId: string, conversationId: string, messageData: any) {
+async function storeMessage(userId: string, conversationId: string, messageData: any, isIncoming: boolean = false) {
     const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
     
     const batch = db.batch();
 
-    batch.set(conversationRef, {
+    const conversationUpdate: any = {
         lastUpdated: messageData.timestamp,
         lastMessage: messageData.caption || messageData.content || `[${messageData.type}]`,
         customerName: 'Customer ' + conversationId.slice(-4),
         customerNumber: conversationId,
-    }, { merge: true });
+    };
+    
+    if (isIncoming) {
+        conversationUpdate.unreadCount = FieldValue.increment(1);
+    }
+
+    batch.set(conversationRef, conversationUpdate, { merge: true });
 
     const messagesRef = conversationRef.collection('messages').doc();
     batch.set(messagesRef, messageData);

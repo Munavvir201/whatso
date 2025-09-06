@@ -8,7 +8,7 @@ export interface Chat {
   avatar: string;
   message: string; // Last message content
   time: string; // Last message time
-  unread: number;
+  unreadCount: number;
   active: boolean;
   ai_hint: string;
 }

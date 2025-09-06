@@ -40,7 +40,7 @@ const useChatList = (userId: string | null) => {
                     avatar: `https://picsum.photos/seed/${doc.id}/40/40`,
                     message: data.lastMessage || 'No messages yet.',
                     time: data.lastUpdated?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || '',
-                    unread: data.unreadCount || 0,
+                    unreadCount: data.unreadCount || 0,
                     active: true, // Placeholder
                     ai_hint: 'person face',
                 });
@@ -107,9 +107,9 @@ export function ChatList({ activeChatId, setActiveChatId }: { activeChatId: stri
                    <p className="text-xs text-muted-foreground font-medium">{chat.number}</p>
                   <p className="text-sm text-muted-foreground truncate mt-1">{chat.message}</p>
                 </div>
-                {chat.unread > 0 && (
+                {chat.unreadCount > 0 && (
                   <div className="flex items-center h-full">
-                      <Badge variant="default" className="bg-primary h-5 w-5 flex items-center justify-center p-0">{chat.unread}</Badge>
+                      <Badge variant="default" className="bg-primary h-5 w-5 flex items-center justify-center p-0">{chat.unreadCount}</Badge>
                   </div>
                 )}
               </button>

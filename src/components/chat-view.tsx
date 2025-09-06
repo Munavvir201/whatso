@@ -205,6 +205,13 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
     const { toast } = useToast();
 
     useEffect(() => {
+        if (activeChat && user) {
+            const conversationRef = doc(db, "userSettings", user.uid, "conversations", activeChat.id);
+            setDoc(conversationRef, { unreadCount: 0 }, { merge: true });
+        }
+    }, [activeChat, user]);
+    
+    useEffect(() => {
       if (viewportRef.current) {
         viewportRef.current.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' });
       }
