@@ -9,14 +9,13 @@ const titles: { [key: string]: string } = {
   '/dashboard/getting-started': 'Getting Started',
   '/training': 'AI Model Training',
   '/settings': 'Settings',
-  '/seed-database': 'Seed Database',
 };
 
 export function PageHeader() {
   const pathname = usePathname();
   const title = titles[pathname] || 'WhatsO';
 
-  const isDashboard = pathname.startsWith('/dashboard') || pathname === '/training' || pathname === '/settings' || pathname === '/seed-database';
+  const isDashboard = pathname.startsWith('/dashboard') || pathname === '/training' || pathname === '/settings';
 
   if (!isDashboard) {
     return null;
