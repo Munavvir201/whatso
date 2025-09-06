@@ -17,4 +17,5 @@ export interface Message {
   sender: 'customer' | 'agent'; // Changed from 'user' | 'ai'
   content: string;
   timestamp: Timestamp | Date; // Allow both for sending and receiving
+  whatsappMessageId?: string;
 }

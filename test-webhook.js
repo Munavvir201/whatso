@@ -5,13 +5,12 @@
  * This script tests both GET (verification) and POST (message) endpoints
  */
 
-const https = require('https');
 const http = require('http');
 
 // Configuration
 const BASE_URL = 'http://localhost:9002'; // Adjust based on your dev server
-const TEST_USER_ID = 'test-user-123';
-const TEST_WEBHOOK_SECRET = 'my_secret_token';
+const TEST_USER_ID = 'test-user-123'; // Make sure a user with this ID exists or settings are mocked
+const TEST_WEBHOOK_SECRET = 'whatsosads'; // The secret token you've configured
 
 // Test data
 const verificationParams = {
@@ -20,25 +19,23 @@ const verificationParams = {
   'hub.challenge': 'test_challenge_12345'
 };
 
-
-
 const sampleWhatsAppMessage = {
   object: 'whatsapp_business_account',
   entry: [{
-    id: '123456789',
+    id: '123456789_WABA_ID',
     changes: [{
       value: {
         messaging_product: 'whatsapp',
         metadata: {
           display_phone_number: '15551234567',
-          phone_number_id: '123456789'
+          phone_number_id: '123456789_PHONE_ID'
         },
         messages: [{
-          from: '15551234567',
-          id: 'wamid.test123',
-          timestamp: '1234567890',
+          from: '18885551234', // This will be the conversation ID
+          id: 'wamid.test12345',
+          timestamp: String(Math.floor(Date.now() / 1000)),
           text: {
-            body: 'Hello, this is a test message!'
+            body: `Hello from the test script! The time is ${new Date().toLocaleTimeString()}`
           },
           type: 'text'
         }]
@@ -54,12 +51,11 @@ const sampleWhatsAppMessage = {
 function makeRequest(url, options = {}) {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
-    const isHttps = urlObj.protocol === 'https:';
-    const client = isHttps ? https : http;
+    const client = http;
     
     const requestOptions = {
       hostname: urlObj.hostname,
-      port: urlObj.port || (isHttps ? 443 : 80),
+      port: urlObj.port,
       path: urlObj.pathname + urlObj.search,
       method: options.method || 'GET',
       headers: {
@@ -70,26 +66,16 @@ function makeRequest(url, options = {}) {
 
     const req = client.request(requestOptions, (res) => {
       let data = '';
-      res.on('data', (chunk) => {
-        data += chunk;
-      });
+      res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
-        resolve({
-          statusCode: res.statusCode,
-          headers: res.headers,
-          body: data
-        });
+        resolve({ statusCode: res.statusCode, headers: res.headers, body: data });
       });
     });
 
-    req.on('error', (error) => {
-      reject(error);
-    });
-
+    req.on('error', (error) => reject(error));
     if (options.body) {
       req.write(JSON.stringify(options.body));
     }
-
     req.end();
   });
 }
@@ -104,18 +90,16 @@ async function testVerification() {
   const url = `${BASE_URL}/api/webhooks/whatsapp/${TEST_USER_ID}?${queryString}`;
   
   try {
-    const response = await makeRequest(url, { method: 'GET' });
-    
+    const response = await makeRequest(url);
     console.log(`Status: ${response.statusCode}`);
     console.log(`Response: ${response.body}`);
     
     if (response.statusCode === 200 && response.body === verificationParams['hub.challenge']) {
       console.log('✅ Verification test PASSED');
       return true;
-    } else {
-      console.log('❌ Verification test FAILED');
-      return false;
     }
+    console.log('❌ Verification test FAILED');
+    return false;
   } catch (error) {
     console.log(`❌ Verification test ERROR: ${error.message}`);
     return false;
@@ -131,21 +115,16 @@ async function testMessageHandling() {
   const url = `${BASE_URL}/api/webhooks/whatsapp/${TEST_USER_ID}`;
   
   try {
-    const response = await makeRequest(url, {
-      method: 'POST',
-      body: sampleWhatsAppMessage
-    });
-    
+    const response = await makeRequest(url, { method: 'POST', body: sampleWhatsAppMessage });
     console.log(`Status: ${response.statusCode}`);
     console.log(`Response: ${response.body}`);
     
     if (response.statusCode === 200) {
       console.log('✅ Message handling test PASSED');
       return true;
-    } else {
-      console.log('❌ Message handling test FAILED');
-      return false;
     }
+    console.log('❌ Message handling test FAILED');
+    return false;
   } catch (error) {
     console.log(`❌ Message handling test ERROR: ${error.message}`);
     return false;
@@ -158,27 +137,21 @@ async function testMessageHandling() {
 async function testInvalidToken() {
   console.log('\n🧪 Testing invalid verification token...');
   
-  const invalidParams = {
-    ...verificationParams,
-    'hub.verify_token': 'invalid_token'
-  };
-  
+  const invalidParams = { ...verificationParams, 'hub.verify_token': 'invalid_token' };
   const queryString = new URLSearchParams(invalidParams).toString();
   const url = `${BASE_URL}/api/webhooks/whatsapp/${TEST_USER_ID}?${queryString}`;
   
   try {
-    const response = await makeRequest(url, { method: 'GET' });
-    
+    const response = await makeRequest(url);
     console.log(`Status: ${response.statusCode}`);
     console.log(`Response: ${response.body}`);
     
     if (response.statusCode === 403) {
       console.log('✅ Invalid token test PASSED');
       return true;
-    } else {
-      console.log('❌ Invalid token test FAILED');
-      return false;
     }
+    console.log('❌ Invalid token test FAILED');
+    return false;
   } catch (error) {
     console.log(`❌ Invalid token test ERROR: ${error.message}`);
     return false;
@@ -195,16 +168,10 @@ async function runTests() {
   
   const results = [];
   
-  // Test 1: Valid verification
   results.push(await testVerification());
-  
-  // Test 2: Invalid token
   results.push(await testInvalidToken());
-  
-  // Test 3: Message handling
   results.push(await testMessageHandling());
   
-  // Summary
   const passed = results.filter(r => r).length;
   const total = results.length;
   
@@ -213,11 +180,10 @@ async function runTests() {
   if (passed === total) {
     console.log('🎉 All tests passed! Your webhook is working correctly.');
   } else {
-    console.log('⚠️  Some tests failed. Please check your webhook implementation.');
+    console.log('⚠️  Some tests failed. Please check your implementation.');
   }
 }
 
-// Run tests if this script is executed directly
 if (require.main === module) {
   runTests().catch(console.error);
 }

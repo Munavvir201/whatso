@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
     allSearchParams: searchParams.toString()
   };
 
-  console.log('🔍 Webhook Debug Info:', JSON.stringify(debugInfo, null, 2));
+  console.log('🔍 Webhook Debug Info (GET):', JSON.stringify(debugInfo, null, 2));
 
   // For verification, Meta expects the challenge to be returned.
   // We'll return it, but also the debug info.
@@ -55,5 +55,5 @@ export async function POST(req: NextRequest) {
 
   console.log('🔍 Webhook Debug Info (POST):', JSON.stringify(debugInfo, null, 2));
 
-  return NextResponse.json(debugInfo, { status: 200 });
+  return NextResponse.json({ status: "ok" }, { status: 200 });
 }

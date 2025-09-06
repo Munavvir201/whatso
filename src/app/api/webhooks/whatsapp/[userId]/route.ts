@@ -1,6 +1,22 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db, FieldValue } from '@/lib/firebase-admin';
+import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
+
+async function getWhatsAppCredentials(userId: string) {
+    const userSettingsRef = db.collection('userSettings').doc(userId);
+    const docSnap = await userSettingsRef.get();
+
+    if (!docSnap.exists || !docSnap.data()?.whatsapp) {
+        throw new Error("WhatsApp credentials not configured for this user.");
+    }
+    const { phoneNumberId, accessToken, webhookSecret } = docSnap.data()?.whatsapp;
+    if (!phoneNumberId || !accessToken || !webhookSecret) {
+        throw new Error("Missing Phone Number ID, Access Token, or Webhook Secret.");
+    }
+    return { phoneNumberId, accessToken, webhookSecret };
+}
+
 
 /**
  * Handles webhook verification from Meta.
@@ -25,15 +41,7 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
   }
 
   try {
-    const userSettingsRef = db.collection('userSettings').doc(userId);
-    const docSnap = await userSettingsRef.get();
-
-    if (!docSnap.exists || !docSnap.data()?.whatsapp?.webhookSecret) {
-      console.error(`🔴 Verification FAILED: No webhook secret found for user ${userId}.`);
-      return NextResponse.json({ error: 'User settings or webhook secret not found' }, { status: 404 });
-    }
-
-    const storedToken = docSnap.data()?.whatsapp.webhookSecret;
+    const { webhookSecret: storedToken } = await getWhatsAppCredentials(userId);
     
     console.log(`Received Token from Meta: "${token}"`);
     console.log(`Stored Token in DB:     "${storedToken}"`);
@@ -42,21 +50,24 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
     if (token === storedToken) {
       console.log(`✅ Verification SUCCESS: Tokens match.`);
       // Update status to 'verified' upon successful verification
+      const userSettingsRef = db.collection('userSettings').doc(userId);
       await userSettingsRef.set({ whatsapp: { status: 'verified' } }, { merge: true });
       return new NextResponse(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
     } else {
       console.error(`🔴 Verification FAILED: Token mismatch.`);
       return NextResponse.json({ error: 'Verification token mismatch' }, { status: 403 });
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('🔴 UNEXPECTED ERROR during verification:', error);
+    if (error.message.includes("not configured")) {
+         return NextResponse.json({ error: 'User settings or webhook secret not found' }, { status: 404 });
+    }
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 /**
  * Handles incoming messages from WhatsApp.
- * This function only stores the message in Firestore.
  */
 export async function POST(req: NextRequest, { params }: { params: { userId: string } }) {
     const { userId } = params;
@@ -73,7 +84,7 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
         }
 
         // Respond to Meta immediately as required, and process the message in the background.
-        storeMessageAsync(userId, message).catch(err => {
+        processMessageAsync(userId, message).catch(err => {
             console.error("Error in async message processing:", err);
         });
 
@@ -85,43 +96,123 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
     }
 }
 
+async function sendWhatsAppMessage(userId: string, to: string, message: string) {
+    const { phoneNumberId, accessToken } = await getWhatsAppCredentials(userId);
+    
+    const response = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            to: to,
+            text: { body: message },
+        }),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        console.error("Failed to send WhatsApp message via API:", errorData);
+        throw new Error(errorData.error?.message || "Failed to send message via WhatsApp API.");
+    }
+
+    const responseData = await response.json();
+    console.log("Successfully sent message via API:", responseData);
+    return responseData;
+}
+
+
 /**
- * Stores an incoming WhatsApp message in Firestore.
+ * Processes an incoming WhatsApp message: stores it, generates an AI response,
+ * sends the response, and stores the response.
  */
-async function storeMessageAsync(userId: string, message: any) {
+async function processMessageAsync(userId: string, message: any) {
     if (message.type !== 'text' || !message.text?.body) {
-        console.log('Skipping storage: Message is not a text message.');
+        console.log('Skipping processing: Message is not a text message.');
         return;
     }
 
     const from = message.from; // Customer's phone number
     const messageBody = message.text.body;
-
+    const conversationId = from;
+    
     try {
-        // The conversation ID is the customer's phone number
-        const conversationId = from;
-        const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
-        
-        // Ensure conversation document exists and update its metadata
-        await conversationRef.set({
-            lastUpdated: FieldValue.serverTimestamp(),
-            lastMessage: messageBody,
-            customerName: 'Customer ' + from.slice(-4), // Placeholder name
-            customerNumber: from,
-        }, { merge: true });
-
-        // Add the new message to the 'messages' subcollection
-        const messagesRef = conversationRef.collection('messages');
-        await messagesRef.add({
+        // 1. Store the incoming customer message
+        await storeMessage(userId, conversationId, {
             sender: 'customer',
             content: messageBody,
             timestamp: FieldValue.serverTimestamp(),
             whatsappMessageId: message.id,
         });
 
-        console.log(`✅ Successfully stored message from ${from} for user ${userId}.`);
+        // 2. Get conversation history
+        const history = await getConversationHistory(userId, conversationId);
+
+        // 3. Get AI response
+        const aiResult = await automateWhatsAppChat({
+            message: messageBody,
+            conversationHistory: history,
+        });
+        const aiResponse = aiResult.response;
+
+        // 4. Send AI response via WhatsApp
+        await sendWhatsAppMessage(userId, from, aiResponse);
+
+        // 5. Store the outgoing AI message
+        await storeMessage(userId, conversationId, {
+            sender: 'agent',
+            content: aiResponse,
+            timestamp: FieldValue.serverTimestamp(),
+        });
+
+        console.log(`✅ Successfully processed and responded to message from ${from}`);
 
     } catch (error) {
-        console.error(`🔴 UNEXPECTED ERROR storing message from ${from}:`, error);
+        console.error(`🔴 UNEXPECTED ERROR processing message from ${from}:`, error);
     }
+}
+
+/**
+ * Stores a single message in a conversation and updates conversation metadata.
+ */
+async function storeMessage(userId: string, conversationId: string, messageData: any) {
+    const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
+    
+    // Use a batch to ensure atomic write
+    const batch = db.batch();
+
+    // Set/update conversation metadata
+    batch.set(conversationRef, {
+        lastUpdated: FieldValue.serverTimestamp(),
+        lastMessage: messageData.content,
+        customerName: 'Customer ' + conversationId.slice(-4), // Placeholder name
+        customerNumber: conversationId,
+    }, { merge: true });
+
+    // Add the new message to the 'messages' subcollection
+    const messagesRef = conversationRef.collection('messages').doc();
+    batch.set(messagesRef, messageData);
+
+    await batch.commit();
+}
+
+
+/**
+ * Fetches the conversation history from Firestore.
+ */
+async function getConversationHistory(userId: string, conversationId: string): Promise<string> {
+    const messagesRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages');
+    const messagesSnap = await messagesRef.orderBy('timestamp', 'asc').limit(20).get();
+
+    if (messagesSnap.empty) {
+        return "No previous conversation history.";
+    }
+
+    return messagesSnap.docs.map(doc => {
+        const data = doc.data();
+        const sender = data.sender === 'customer' ? 'Customer' : 'Agent';
+        return `${sender}: ${data.content}`;
+    }).join('\n');
 }

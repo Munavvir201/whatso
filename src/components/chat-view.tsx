@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils"
 import { Skeleton } from './ui/skeleton';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
-import { collection, onSnapshot, query, orderBy, Timestamp, addDoc, doc, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, Timestamp, addDoc, doc, getDoc, FieldValue } from 'firebase/firestore';
 import type { Message, Chat } from '@/types/chat';
 import { useToast } from '@/hooks/use-toast';
 
@@ -113,24 +113,22 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
         
         setIsSending(true);
 
-        const messageData = {
-            sender: 'agent',
-            content: newMessage,
-            timestamp: new Date()
-        };
+        const messageContent = newMessage;
+        setNewMessage("");
 
         try {
             // 1. Send via WhatsApp API
-            await sendWhatsAppMessage(user.uid, activeChat.id, newMessage);
+            await sendWhatsAppMessage(user.uid, activeChat.id, messageContent);
 
             // 2. Save to Firestore
-            const messagesRef = collection(db, "userSettings", user.uid, "conversations", activeChat.id, "messages");
-            await addDoc(messagesRef, {
-                ...messageData,
-                timestamp: Timestamp.fromDate(messageData.timestamp) // Ensure it's a Firestore Timestamp
-            });
+            const conversationRef = doc(db, "userSettings", user.uid, "conversations", activeChat.id);
+            const messagesRef = collection(conversationRef, "messages");
             
-            setNewMessage("");
+            await addDoc(messagesRef, {
+                sender: 'agent',
+                content: messageContent,
+                timestamp: Timestamp.now()
+            });
 
         } catch (error: any) {
              toast({
@@ -138,6 +136,8 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
                 title: "Failed to Send Message",
                 description: error.message,
             });
+            // If sending failed, put the message back in the input box
+            setNewMessage(messageContent);
         } finally {
             setIsSending(false);
         }
@@ -169,10 +169,10 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
           </div>
         </div>
         <div className="flex items-center space-x-2">
-          <Switch id="ai-mode" disabled />
+          <Switch id="ai-mode" />
           <Label htmlFor="ai-mode" className="flex items-center gap-2 text-muted-foreground">
             <Bot className="h-5 w-5" />
-            <span className="font-medium">AI Mode (Disabled)</span>
+            <span className="font-medium">AI Mode</span>
           </Label>
         </div>
       </div>
