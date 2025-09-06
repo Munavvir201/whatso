@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils"
 import { Skeleton } from './ui/skeleton';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
-import { collection, onSnapshot, query, orderBy, Timestamp, doc, getDoc, setDoc, writeBatch, serverTimestamp, addDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, Timestamp, doc, getDoc, setDoc, writeBatch, serverTimestamp, addDoc, updateDoc } from 'firebase/firestore';
 import type { Message, Chat } from '@/types/chat';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
@@ -201,6 +201,58 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
     const [recordingTime, setRecordingTime] = useState(0);
     const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const { toast } = useToast();
+    
+    // State for the AI toggle
+    const [isAiEnabledForChat, setIsAiEnabledForChat] = useState(true);
+    const [isGlobalAiVerified, setIsGlobalAiVerified] = useState(false);
+
+
+    // Fetch global AI status
+    useEffect(() => {
+        if (!user) return;
+        const userSettingsRef = doc(db, "userSettings", user.uid);
+        const unsubscribe = onSnapshot(userSettingsRef, (docSnap) => {
+            const isVerified = docSnap.data()?.ai?.status === 'verified';
+            setIsGlobalAiVerified(isVerified);
+        });
+        return () => unsubscribe();
+    }, [user]);
+
+    // Fetch and subscribe to per-chat AI status
+    useEffect(() => {
+        if (!user || !activeChat) return;
+        const conversationRef = doc(db, "userSettings", user.uid, "conversations", activeChat.id);
+        const unsubscribe = onSnapshot(conversationRef, (docSnap) => {
+            if (docSnap.exists()) {
+                // Default to true if the field is not set
+                setIsAiEnabledForChat(docSnap.data().isAiEnabled !== false);
+            }
+        });
+        return () => unsubscribe();
+    }, [user, activeChat]);
+    
+
+    const handleAiToggle = async (checked: boolean) => {
+        if (!user || !activeChat) return;
+        setIsAiEnabledForChat(checked); // Optimistic update
+        const conversationRef = doc(db, "userSettings", user.uid, "conversations", activeChat.id);
+        try {
+            await updateDoc(conversationRef, { isAiEnabled: checked });
+             toast({
+                title: `AI Agent ${checked ? 'Enabled' : 'Disabled'}`,
+                description: `The AI will ${checked ? 'now respond' : 'no longer respond'} in this chat.`,
+            });
+        } catch (error) {
+            console.error("Failed to update AI status for chat:", error);
+            setIsAiEnabledForChat(!checked); // Revert on error
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: "Could not update AI status.",
+            });
+        }
+    };
+
 
     useEffect(() => {
         if (activeChat && user) {
@@ -472,13 +524,21 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
           </div>
         </div>
         <div className="flex items-center space-x-2">
-          <div className="flex items-center space-x-2">
-            <Switch id="ai-mode" />
-            <Label htmlFor="ai-mode" className="flex items-center gap-2 text-muted-foreground">
-                <Bot className="h-5 w-5" />
-                <span className="font-medium hidden sm:inline">AI Agent</span>
-            </Label>
-          </div>
+            <div
+                className="flex items-center space-x-2"
+                title={!isGlobalAiVerified ? "Global AI provider not verified. Go to Settings -> AI Provider." : ""}
+            >
+                <Switch 
+                    id="ai-mode" 
+                    checked={isAiEnabledForChat}
+                    onCheckedChange={handleAiToggle}
+                    disabled={!isGlobalAiVerified}
+                />
+                <Label htmlFor="ai-mode" className={cn("flex items-center gap-2", !isGlobalAiVerified ? "cursor-not-allowed text-muted-foreground" : "")}>
+                    <Bot className="h-5 w-5" />
+                    <span className="font-medium hidden sm:inline">AI Agent</span>
+                </Label>
+            </div>
           <Button variant="ghost" size="icon">
               <MoreVertical className="h-5 w-5 text-muted-foreground" />
           </Button>

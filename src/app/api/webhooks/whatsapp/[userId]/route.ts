@@ -218,10 +218,21 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
         const settings = userSettingsDoc.data();
         
-        const isAiEnabled = settings?.ai?.status === 'verified';
+        // Global AI check
+        const isGlobalAiEnabled = settings?.ai?.status === 'verified';
         
-        if (isAiEnabled) {
-            console.log('🤖 AI is enabled. Generating response...');
+        if (!isGlobalAiEnabled) {
+             console.log('🤖 Global AI is disabled for this user. No response will be sent.');
+             return;
+        }
+
+        // Per-chat AI check
+        const conversationDoc = await db.collection('userSettings').doc(userId).collection('conversations').doc(from).get();
+        // Default to true if the setting doesn't exist on the conversation yet
+        const isChatAiEnabled = conversationDoc.data()?.isAiEnabled !== false;
+
+        if (isChatAiEnabled) {
+            console.log('🤖 AI is enabled for this chat. Generating response...');
             
             const conversationHistory = await getConversationHistory(userId, from);
             // Safely get clientData, defaulting to an empty string if not present
@@ -236,7 +247,7 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
             console.log(`🤖 AI Response generated: "${aiResult.response}"`);
             await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: aiResult.response } });
         } else {
-            console.log('🤖 AI is disabled for this user. No response will be sent.');
+            console.log('🤖 AI is disabled for this specific chat. No response will be sent.');
         }
 
     } catch (error) {
@@ -276,5 +287,3 @@ async function getConversationHistory(userId: string, conversationId: string): P
         return `${sender}: ${content}`;
     }).join('\n');
 }
-
-    

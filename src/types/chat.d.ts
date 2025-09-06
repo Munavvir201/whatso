@@ -11,6 +11,7 @@ export interface Chat {
   unreadCount: number;
   active: boolean;
   ai_hint: string;
+  isAiEnabled?: boolean;
 }
 
 export interface Message {
