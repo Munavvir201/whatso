@@ -450,7 +450,7 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                     <span className="sr-only">Send</span>
                 </Button>
             ) : (
-                <Button type="button" variant={isRecording ? "destructive" : "ghost"} size="icon" className="flex-shrink-0 text-muted-foreground" onClick={handleMicClick} disabled={isSending}>
+                <Button type="button" variant="destructive" size="icon" className="flex-shrink-0 text-white bg-red-600 hover:bg-red-700" onClick={handleMicClick} disabled={isSending}>
                     {isRecording ? <Circle className="h-5 w-5 text-white fill-white" /> : <Mic className="h-5 w-5" />}
                     <span className="sr-only">Record voice message</span>
                 </Button>

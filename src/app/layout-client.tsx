@@ -71,7 +71,7 @@ export default function RootLayoutClient({
                  <div className="flex flex-col group-data-[collapsible=icon]:hidden flex-1">
                    <span className="text-sm font-semibold text-sidebar-foreground truncate">{user?.displayName || user?.email}</span>
                  </div>
-                 <Button variant="ghost" size="icon" className="h-8 w-8 group-data-[collapsible=icon]:h-full group-data-[collapsible=icon]:w-full" onClick={logout}><LogOut /></Button>
+                 <Button variant="ghost" size="icon" className="h-8 w-8 group-data-[collapsible=icon]:h-full group-data-[collapsible=icon]:w-full hover:bg-destructive hover:text-destructive-foreground" onClick={logout}><LogOut /></Button>
                </div>
             </SidebarFooter>
           </Sidebar>
