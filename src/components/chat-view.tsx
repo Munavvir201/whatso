@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { Bot, Pencil, Send, User, Paperclip, Mic, MoreVertical } from "lucide-react"
+import { Bot, Pencil, Send, User, Paperclip, Mic, MoreVertical, MessageSquare } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Skeleton } from './ui/skeleton';
 import { db } from '@/lib/firebase';
