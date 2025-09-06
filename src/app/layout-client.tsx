@@ -73,11 +73,9 @@ export default function RootLayoutClient({
                </div>
             </SidebarFooter>
           </Sidebar>
-          <SidebarInset className="flex flex-col h-svh">
+          <SidebarInset>
             <PageHeader />
-            <div className="flex-1 flex flex-col min-h-0">
-              {children}
-            </div>
+            {children}
           </SidebarInset>
         </SidebarProvider>
     )
