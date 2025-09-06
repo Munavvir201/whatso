@@ -8,12 +8,12 @@ import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { Bot, Pencil, Send, Paperclip, Mic, MoreVertical, MessageSquare, ChevronLeft, Dot, Circle } from "lucide-react"
+import { Bot, Pencil, Send, Paperclip, Mic, MoreVertical, MessageSquare, ChevronLeft, Trash2, Circle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Skeleton } from './ui/skeleton';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
-import { collection, onSnapshot, query, orderBy, Timestamp, addDoc, doc, getDoc, setDoc, FieldValue, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, Timestamp, doc, getDoc, setDoc, writeBatch, FieldValue } from 'firebase/firestore';
 import type { Message, Chat } from '@/types/chat';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
@@ -93,7 +93,6 @@ async function sendWhatsAppMediaMessage(userId: string, to: string, file: File |
         [type]: { id: mediaId },
     };
     
-    // Add caption for image, video, document
     if (caption && (type === 'image' || type === 'video' || type === 'document')) {
         messagePayload[type].caption = caption;
     }
@@ -148,7 +147,6 @@ async function sendWhatsAppTextMessage(userId: string, to: string, message: stri
     }
 
     const responseData = await response.json();
-    console.log("Successfully sent message:", responseData);
     return responseData;
 }
 
@@ -202,6 +200,9 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const [isRecording, setIsRecording] = useState(false);
+    const [recordingTime, setRecordingTime] = useState(0);
+    const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
     const { toast } = useToast();
 
     useEffect(() => {
@@ -209,6 +210,24 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         viewportRef.current.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' });
       }
     }, [messages]);
+
+    useEffect(() => {
+      if (isRecording) {
+        recordingIntervalRef.current = setInterval(() => {
+          setRecordingTime(prev => prev + 1);
+        }, 1000);
+      } else {
+        if (recordingIntervalRef.current) {
+          clearInterval(recordingIntervalRef.current);
+        }
+        setRecordingTime(0);
+      }
+      return () => {
+        if (recordingIntervalRef.current) {
+          clearInterval(recordingIntervalRef.current);
+        }
+      }
+    }, [isRecording]);
 
     const handleEditName = () => {
         if (!activeChat || !user) return;
@@ -306,44 +325,22 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         } finally {
             setIsSending(false);
         }
-        if (event.target) event.target.value = ''; // Reset file input
+        if (event.target) event.target.value = '';
     };
 
-    const handleMicClick = async () => {
-        if (isRecording) {
-            mediaRecorderRef.current?.stop();
-            setIsRecording(false);
-            return;
-        }
-
+    const startRecording = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const options = { mimeType: 'audio/ogg;codecs=opus' };
-            // Ensure worker is available, might need to be served statically
             const workerUrl = new URL('opus-media-recorder/encoderWorker.umd.js', import.meta.url).href;
             mediaRecorderRef.current = new OpusMediaRecorder(stream, options, { workerUrl });
 
             const chunks: BlobPart[] = [];
             mediaRecorderRef.current.ondataavailable = (e) => chunks.push(e.data);
-            mediaRecorderRef.current.onstop = async () => {
+            mediaRecorderRef.current.onstop = () => {
                 const audioBlob = new Blob(chunks, { type: 'audio/ogg; codecs=opus' });
-                
-                if (!user || !activeChat) return;
-                setIsSending(true);
-                try {
-                    const response = await sendWhatsAppMediaMessage(user.uid, activeChat.id, audioBlob, 'audio');
-                    const dataUri = await new Promise<string>(resolve => {
-                        const reader = new FileReader();
-                        reader.onloadend = () => resolve(reader.result as string);
-                        reader.readAsDataURL(audioBlob);
-                    });
-                    await storeMessageInDb({ sender: 'agent', type: 'audio', mediaUrl: dataUri, mimeType: audioBlob.type, content: 'Voice message', timestamp: Timestamp.now(), whatsappMessageId: response.messages[0].id });
-                } catch(e: any) {
-                     toast({ variant: "destructive", title: "Failed to send voice message", description: e.message });
-                } finally {
-                    setIsSending(false);
-                }
-                 stream.getTracks().forEach(track => track.stop());
+                setRecordedBlob(audioBlob);
+                stream.getTracks().forEach(track => track.stop());
             };
             mediaRecorderRef.current.start();
             setIsRecording(true);
@@ -352,6 +349,53 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
             toast({ variant: "destructive", title: "Microphone access denied", description: "Please enable microphone permissions in your browser." });
         }
     };
+
+    const stopRecording = () => {
+        mediaRecorderRef.current?.stop();
+    };
+    
+    const cancelRecording = () => {
+        if (mediaRecorderRef.current?.state === 'recording') {
+            mediaRecorderRef.current.stop();
+        }
+        setIsRecording(false);
+        setRecordedBlob(null);
+    }
+    
+    const sendRecording = async () => {
+        if (!recordedBlob || !user || !activeChat) return;
+
+        setIsSending(true);
+        setIsRecording(false);
+
+        try {
+            const response = await sendWhatsAppMediaMessage(user.uid, activeChat.id, recordedBlob, 'audio');
+            const dataUri = await new Promise<string>(resolve => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(recordedBlob);
+            });
+            await storeMessageInDb({ sender: 'agent', type: 'audio', mediaUrl: dataUri, mimeType: recordedBlob.type, content: 'Voice message', timestamp: Timestamp.now(), whatsappMessageId: response.messages[0].id });
+        } catch(e: any) {
+             toast({ variant: "destructive", title: "Failed to send voice message", description: e.message });
+        } finally {
+            setIsSending(false);
+            setRecordedBlob(null);
+        }
+    }
+    
+    useEffect(() => {
+        if (isRecording && recordedBlob) {
+            sendRecording();
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [recordedBlob]);
+
+    const formatRecordingTime = (time: number) => {
+        const minutes = Math.floor(time / 60);
+        const seconds = time % 60;
+        return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
 
 
   if (!activeChat) {
@@ -441,38 +485,54 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         </ScrollArea>
       </div>
       <div className="p-4 border-t flex-shrink-0 bg-background/80 backdrop-blur-sm">
-        <form className="flex w-full items-start space-x-2" onSubmit={handleSendTextMessage}>
-            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
-            <Button type="button" variant="ghost" size="icon" className="flex-shrink-0 text-muted-foreground mt-1" onClick={() => fileInputRef.current?.click()} disabled={isSending}>
-                <Paperclip className="h-5 w-5" />
-                <span className="sr-only">Attach file</span>
-            </Button>
-            <Textarea
-                placeholder="Type your message here... (Shift+Enter for new line)"
-                className="flex-1 min-h-[40px] max-h-32 resize-none bg-background border-border focus-visible:ring-1"
-                value={newMessage}
-                disabled={isSending || isRecording}
-                onChange={(e) => setNewMessage(e.target.value)}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSendTextMessage(e);
-                    }
-                }}
-            />
-            {newMessage.trim() ? (
-                <Button type="submit" size="icon" className="flex-shrink-0 bg-primary hover:bg-primary/90 mt-1" disabled={isSending}>
-                    <Send className="h-4 w-4 text-primary-foreground" />
-                    <span className="sr-only">Send</span>
+        {isRecording ? (
+            <div className="flex w-full items-center space-x-2">
+                <Button type="button" variant="ghost" size="icon" className="flex-shrink-0 text-destructive" onClick={cancelRecording}>
+                    <Trash2 className="h-5 w-5" />
+                    <span className="sr-only">Cancel recording</span>
                 </Button>
-            ) : (
-                <Button type="button" variant="destructive" size="icon" className="flex-shrink-0 text-white bg-red-600 hover:bg-red-700 mt-1" onClick={handleMicClick} disabled={isSending}>
-                    {isRecording ? <Circle className="h-5 w-5 text-white fill-white animate-pulse" /> : <Mic className="h-5 w-5" />}
-                    <span className="sr-only">Record voice message</span>
+                <div className="flex-1 bg-muted rounded-full h-10 flex items-center px-4">
+                    <Circle className="h-3 w-3 text-destructive fill-destructive mr-2 animate-pulse" />
+                    <span className="font-mono text-sm text-muted-foreground">{formatRecordingTime(recordingTime)}</span>
+                </div>
+                <Button type="button" size="icon" className="flex-shrink-0 bg-primary hover:bg-primary/90" onClick={stopRecording}>
+                    <Send className="h-5 w-5 text-primary-foreground" />
+                    <span className="sr-only">Send voice message</span>
                 </Button>
-            )}
-            
-        </form>
+            </div>
+        ) : (
+            <form className="flex w-full items-start space-x-2" onSubmit={handleSendTextMessage}>
+                <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+                <Button type="button" variant="ghost" size="icon" className="flex-shrink-0 text-muted-foreground mt-1" onClick={() => fileInputRef.current?.click()} disabled={isSending}>
+                    <Paperclip className="h-5 w-5" />
+                    <span className="sr-only">Attach file</span>
+                </Button>
+                <Textarea
+                    placeholder="Type a message..."
+                    className="flex-1 min-h-[40px] max-h-32 resize-none bg-background border-border focus-visible:ring-1"
+                    value={newMessage}
+                    disabled={isSending}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendTextMessage(e);
+                        }
+                    }}
+                />
+                {newMessage.trim() ? (
+                    <Button type="submit" size="icon" className="flex-shrink-0 bg-primary hover:bg-primary/90 mt-1" disabled={isSending}>
+                        <Send className="h-5 w-5 text-primary-foreground" />
+                        <span className="sr-only">Send</span>
+                    </Button>
+                ) : (
+                    <Button type="button" size="icon" className="flex-shrink-0 bg-destructive hover:bg-destructive/90 mt-1" onClick={startRecording} disabled={isSending}>
+                        <Mic className="h-5 w-5 text-destructive-foreground" />
+                        <span className="sr-only">Record voice message</span>
+                    </Button>
+                )}
+            </form>
+        )}
       </div>
     </div>
   )

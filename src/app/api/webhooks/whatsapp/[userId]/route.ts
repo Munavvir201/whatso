@@ -138,7 +138,6 @@ async function sendWhatsAppMessage(userId: string, to: string, message: string) 
  * Downloads media from Meta's servers and returns it as a base64 data URI.
  */
 async function downloadMediaAsDataUri(mediaId: string, accessToken: string): Promise<{ dataUri: string, mimeType: string }> {
-    // 1. Get media URL
     const urlResponse = await axios.get(`https://graph.facebook.com/v20.0/${mediaId}`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
     });
@@ -147,7 +146,6 @@ async function downloadMediaAsDataUri(mediaId: string, accessToken: string): Pro
     }
     const mediaUrl = urlResponse.data.url;
     
-    // 2. Download the actual media file
     const downloadResponse = await axios.get(mediaUrl, {
         headers: { 'Authorization': `Bearer ${accessToken}` },
         responseType: 'arraybuffer'
@@ -166,8 +164,8 @@ async function downloadMediaAsDataUri(mediaId: string, accessToken: string): Pro
  * sends the response, and stores the response.
  */
 async function processMessageAsync(userId: string, message: any) {
-    const from = message.from; // Customer's phone number
-    const conversationId = from; // Use customer's number as the unique ID for the conversation
+    const from = message.from;
+    const conversationId = from;
     const { accessToken } = await getWhatsAppCredentials(userId);
 
     const messageToStore: any = {
@@ -195,7 +193,7 @@ async function processMessageAsync(userId: string, message: any) {
                 const { dataUri, mimeType } = await downloadMediaAsDataUri(mediaId, accessToken);
                 messageToStore.mediaUrl = dataUri;
                 messageToStore.mimeType = mimeType;
-                incomingMessageContent = `[${mediaType} received]`; // Placeholder for AI
+                incomingMessageContent = `[${mediaType} received]`;
                 if (message[mediaType].caption) {
                     messageToStore.caption = message[mediaType].caption;
                     incomingMessageContent += ` with caption: ${message[mediaType].caption}`;
@@ -247,9 +245,9 @@ async function storeMessage(userId: string, conversationId: string, messageData:
     const batch = db.batch();
 
     batch.set(conversationRef, {
-        lastUpdated: FieldValue.serverTimestamp(),
+        lastUpdated: messageData.timestamp,
         lastMessage: messageData.caption || messageData.content || `[${messageData.type}]`,
-        customerName: 'Customer ' + conversationId.slice(-4), // Placeholder name
+        customerName: 'Customer ' + conversationId.slice(-4),
         customerNumber: conversationId,
     }, { merge: true });
 
