@@ -218,7 +218,6 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
         const settings = userSettingsDoc.data();
         
-        // Global AI check
         const isGlobalAiEnabled = settings?.ai?.status === 'verified';
         
         if (!isGlobalAiEnabled) {
@@ -226,26 +225,42 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
              return;
         }
 
-        // Per-chat AI check
         const conversationDoc = await db.collection('userSettings').doc(userId).collection('conversations').doc(from).get();
-        // Default to true if the setting doesn't exist on the conversation yet
         const isChatAiEnabled = conversationDoc.data()?.isAiEnabled !== false;
 
         if (isChatAiEnabled) {
             console.log('🤖 AI is enabled for this chat. Generating response...');
             
             const conversationHistory = await getConversationHistory(userId, from);
-            // Safely get clientData, defaulting to an empty string if not present
-            const clientData = settings?.trainingData?.clientData || '';
+            
+            const trainingContext = settings?.trainingData || {};
+            const clientData = trainingContext.clientData || "";
+            const trainingInstructions = trainingContext.trainingInstructions || "";
+            const chatFlow = trainingContext.chatFlow || "";
+            
+            const fullTrainingData = `
+              TRAINING DATA:
+              ${clientData}
+              
+              INSTRUCTIONS:
+              ${trainingInstructions}
+              
+              CHAT FLOW:
+              ${chatFlow}
+            `;
 
             const aiResult = await automateWhatsAppChat({
                 message: contentForAi,
                 conversationHistory,
-                clientData
+                clientData: fullTrainingData.trim(),
             });
 
-            console.log(`🤖 AI Response generated: "${aiResult.response}"`);
-            await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: aiResult.response } });
+            if (aiResult.response) {
+                console.log(`🤖 AI Response generated: "${aiResult.response}"`);
+                await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: aiResult.response } });
+            } else {
+                 console.log(`🤖 AI generated an empty response. Not sending.`);
+            }
         } else {
             console.log('🤖 AI is disabled for this specific chat. No response will be sent.');
         }
