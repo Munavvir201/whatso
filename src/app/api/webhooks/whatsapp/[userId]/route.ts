@@ -6,15 +6,17 @@ import { getWhatsAppCredentials, downloadMediaAsDataUri, sendWhatsAppMessage } f
 import { genkit } from 'genkit';
 import { googleAI } from '@genkit-ai/googleai';
 
-// This new background processing function will be triggered by a Pub/Sub topic
-// This function will be triggered by a Pub/Sub topic to process messages in the background
-async function processMessageInBackground(userId: string, message: any, contact: any) {
+// This function is triggered to process messages in the background
+async function processMessageAsync(userId: string, message: any, contact: any) {
     const from = message.from;
     const profileName = contact?.profile?.name;
     
     try {
-        const { messageId, contentForAi } = await storeAndProcessMessage(userId, from, message, profileName);
-        
+        // Step 1: Store the message and get necessary info for AI
+        const { messageId, contentForAi } = await storeInitialMessage(userId, from, message, profileName);
+        console.log(`✅ Message ${messageId} stored. Content for AI: "${contentForAi}"`);
+
+        // Step 2: Check if AI should respond
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
         if (!userSettingsDoc.exists) {
             console.log("🤖 User settings not found. Cannot check for AI status.");
@@ -26,10 +28,12 @@ async function processMessageInBackground(userId: string, message: any, contact:
         const conversationDoc = await db.collection('userSettings').doc(userId).collection('conversations').doc(from).get();
         const isChatAiEnabled = conversationDoc.exists && conversationDoc.data()?.isAiEnabled !== false;
 
+        // Step 3: If AI is enabled, generate and send a response
         if (isGlobalAiEnabled && isChatAiEnabled) {
             console.log('🤖 AI is enabled for this chat. Generating response...');
             
-            if (!settings.ai.apiKey || !settings.ai.model) {
+            // CRITICAL FIX: Ensure AI settings (apiKey and model) exist before proceeding.
+            if (!settings.ai || !settings.ai.apiKey || !settings.ai.model) {
                 console.error("🔴 AI settings (apiKey or model) are missing from the user's profile. Cannot generate response.");
                 return;
             }
@@ -50,32 +54,39 @@ async function processMessageInBackground(userId: string, message: any, contact:
               ${chatFlow}
             `.trim();
 
-            const googleAIPlugin = googleAI({ apiKey: settings.ai.apiKey });
-            const modelName = `googleai/${settings.ai.model}`;
+            try {
+                 // Correctly initialize Genkit with the user's specific API key and model
+                const googleAIPlugin = googleAI({ apiKey: settings.ai.apiKey });
+                const modelName = `googleai/${settings.ai.model}`;
+                const ai = genkit({
+                    plugins: [googleAIPlugin],
+                    model: modelName as any,
+                });
+                
+                const aiResult = await automateWhatsAppChat({
+                    message: contentForAi,
+                    conversationHistory: "No history available.", // To-do: Implement history retrieval
+                    clientData: fullTrainingData,
+                });
 
-            const ai = genkit({
-                plugins: [googleAIPlugin],
-                model: modelName as any,
-            });
-
-            const aiResult = await automateWhatsAppChat({
-                message: contentForAi,
-                conversationHistory: "No history available.", // To-do: Implement history retrieval
-                clientData: fullTrainingData,
-            });
-
-            if (aiResult.response) {
-                console.log(`🤖 AI Response generated: "${aiResult.response}"`);
-                await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: aiResult.response } });
-            } else {
-                 console.log(`🤖 AI generated an empty response. Not sending.`);
+                if (aiResult.response) {
+                    console.log(`🤖 AI Response generated: "${aiResult.response}"`);
+                    await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: aiResult.response } });
+                    console.log(`✅ AI response sent successfully to ${from}.`);
+                } else {
+                    console.log(`🤖 AI generated an empty response. Not sending.`);
+                }
+            } catch (aiError: any) {
+                console.error("🔴🔴🔴 FAILED TO GENERATE OR SEND AI RESPONSE 🔴🔴🔴");
+                console.error(aiError);
             }
+
         } else {
             console.log('🤖 AI is disabled for this user or chat. No response will be sent.');
         }
 
+        // Step 4: Handle media processing in the background (fire and forget)
         if (['image', 'audio', 'video', 'document', 'sticker'].includes(message.type)) {
-            // The media processing is also handled in the background
             processMediaInBackground(userId, from, message, messageId).catch(err => {
                 console.error("🔴 Background media processing failed:", err);
             });
@@ -144,16 +155,25 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
 
         const value = body.entry?.[0]?.changes?.[0]?.value;
 
-        if (!value || !value.messages) {
-            console.log("Discarding: Event is not a message or 'value' object is missing.");
-            return NextResponse.json({ status: 'event is not a message or no value object' }, { status: 200 });
+        if (!value || (!value.messages && !value.statuses)) {
+             console.log("Discarding: Event is not a message or status update.");
+             return NextResponse.json({ status: 'not a message or status update' }, { status: 200 });
         }
         
-        const message = value.messages[0];
-        const contact = value.contacts?.[0];
-        
-        // Schedule the AI processing to run in the background
-        processMessageInBackground(userId, message, contact);
+        // Handle incoming messages
+        if (value.messages) {
+            const message = value.messages[0];
+            const contact = value.contacts?.[0];
+            
+            // Schedule the message processing to run in the background
+            processMessageAsync(userId, message, contact);
+        }
+
+        // Handle message status updates (e.g., delivered, read)
+        if (value.statuses) {
+            // Optional: You can add logic here to update message status in your DB
+            console.log(`Received status update: ${JSON.stringify(value.statuses[0])}`);
+        }
 
         // Return a 200 OK response immediately to Meta
         return NextResponse.json({ status: 'ok' }, { status: 200 });
@@ -166,9 +186,9 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
 
 
 /**
- * Stores the incoming message and triggers media processing if needed.
+ * Stores the initial message in Firestore.
  */
-async function storeAndProcessMessage(userId: string, conversationId: string, message: any, profileName?: string): Promise<{ messageId: string, contentForAi: string }> {
+async function storeInitialMessage(userId: string, conversationId: string, message: any, profileName?: string): Promise<{ messageId: string, contentForAi: string }> {
   const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
   const messageRef = conversationRef.collection('messages').doc();
 
@@ -197,6 +217,7 @@ async function storeAndProcessMessage(userId: string, conversationId: string, me
     case 'sticker':
       const mediaType = message.type;
       messageToStore.status = 'processing';
+      messageToStore.media = { id: message[mediaType].id, mime_type: message[mediaType].mime_type };
       
       if (message[mediaType].caption) {
         messageToStore.caption = message[mediaType].caption;
@@ -235,7 +256,32 @@ async function storeAndProcessMessage(userId: string, conversationId: string, me
   batch.set(messageRef, messageToStore);
   
   await batch.commit();
-  console.log(`✅ Initial message ${messageRef.id} stored for conversation ${conversationId}.`);
 
   return { messageId: messageRef.id, contentForAi: incomingMessageContent };
+}
+
+/**
+ * Downloads and updates a media message in the background.
+ */
+async function processMediaInBackground(userId: string, conversationId: string, message: any, messageId: string) {
+    console.log(`[Media BG] Starting download for message ${messageId}...`);
+    try {
+        const { accessToken } = await getWhatsAppCredentials(userId, ['accessToken']);
+        const mediaId = message[message.type].id;
+        const { dataUri, mimeType } = await downloadMediaAsDataUri(mediaId, accessToken);
+        
+        const messageRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages').doc(messageId);
+        
+        await messageRef.update({
+            'mediaUrl': dataUri,
+            'mimeType': mimeType,
+            'status': 'processed',
+        });
+        console.log(`[Media BG] ✅ Successfully processed and updated media for message ${messageId}.`);
+
+    } catch (error) {
+        console.error(`[Media BG] 🔴 Failed to process media for message ${messageId}:`, error);
+        const messageRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages').doc(messageId);
+        await messageRef.update({ 'status': 'failed_processing' });
+    }
 }
