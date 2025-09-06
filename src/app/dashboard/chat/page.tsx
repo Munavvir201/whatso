@@ -21,7 +21,7 @@ export default function ChatPage() {
 
   // Set the first chat as active by default on desktop
   useEffect(() => {
-    if (!user || isMobile || activeChatId) return;
+    if (!user || isMobile) return;
     
     const q = query(
       collection(db, "userSettings", user.uid, "conversations"), 
