@@ -3,8 +3,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db, FieldValue } from '@/lib/firebase-admin';
 import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
 import { getWhatsAppCredentials, downloadMediaAsDataUri, sendWhatsAppMessage } from '@/lib/whatsapp';
-import * as admin from 'firebase-admin';
-
 
 /**
  * Handles webhook verification from Meta.
@@ -20,7 +18,6 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
   console.log(`--- Webhook Verification for User: ${userId} ---`);
   console.log(`Received query params: mode=${mode}, token=${token}, challenge=${challenge}`);
 
-
   if (mode !== 'subscribe' || !token || !challenge) {
     console.error('🔴 Verification FAILED: Missing or invalid parameters.');
     return NextResponse.json({ error: 'Invalid verification request' }, { status: 400 });
@@ -28,14 +25,6 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
 
   try {
     const { webhookSecret: storedToken } = await getWhatsAppCredentials(userId, ['webhookSecret']);
-
-    if (!storedToken) {
-        throw new Error("Webhook secret is not configured in the database.");
-    }
-    
-    console.log(`Received Token from Meta: "${token}"`);
-    console.log(`Stored Token in DB:     "${storedToken}"`);
-
 
     if (token === storedToken) {
       console.log(`✅ Verification SUCCESS: Tokens match.`);
@@ -48,7 +37,7 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
     }
   } catch (error: any) {
     console.error('🔴 UNEXPECTED ERROR during verification:', error);
-    if (error.message.includes("not configured") || error.message.includes("does not exist")) {
+    if (error.message.includes("not configured") || error.message.includes("not found")) {
          return NextResponse.json({ error: 'User settings or webhook secret not found' }, { status: 404 });
     }
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -63,7 +52,7 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
     
     try {
         const body = await req.json();
-        console.log('--- New WhatsApp Webhook Event Received ---', JSON.stringify(body, null, 2));
+        console.log('--- New WhatsApp Webhook Event Received ---');
 
         if (body.object !== 'whatsapp_business_account') {
             console.log("Discarding: Not a WhatsApp business account update.");
@@ -72,21 +61,23 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
 
         const value = body.entry?.[0]?.changes?.[0]?.value;
 
-        // Gracefully handle webhooks that are not messages (e.g., read receipts)
-        if (!value || !value.messages) {
+        if (!value) {
+            console.log("Discarding: 'value' object is missing from payload.");
+            return NextResponse.json({ status: 'no value object' }, { status: 200 });
+        }
+        
+        if (!value.messages) {
              console.log("Discarding: Event is not a message (e.g., status update, read receipt).");
              return NextResponse.json({ status: 'event is not a message' }, { status: 200 });
         }
 
         const message = value.messages[0];
-        const contact = value.contacts?.[0]; // Contacts may not always be present
+        const contact = value.contacts?.[0];
         
-        // Don't await this. Process in the background to respond to Meta quickly.
         processMessageAsync(userId, message, contact).catch(err => {
             console.error("Error in async message processing:", err);
         });
 
-        // Return a 200 OK response to Meta immediately.
         return NextResponse.json({ status: 'ok' }, { status: 200 });
 
     } catch (error) {
@@ -95,12 +86,52 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
     }
 }
 
+
+/**
+ * Saves a single message document to the database.
+ */
+async function storeMessageInDb(userId: string, conversationId: string, messageData: any) {
+  try {
+    await db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages').add(messageData);
+    console.log(`✅ Message stored in DB for conversation ${conversationId}`);
+  } catch (error) {
+    console.error(`🔴 FAILED to store message in DB for conversation ${conversationId}:`, error);
+    throw error; // Re-throw to be caught by the calling function
+  }
+}
+
+/**
+ * Updates the conversation metadata document (last message, unread count, etc.).
+ */
+async function updateConversationMetadata(userId: string, conversationId: string, messageData: any, profileName?: string) {
+  const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
+  try {
+    const conversationUpdate: any = {
+      lastUpdated: FieldValue.serverTimestamp(),
+      lastMessage: messageData.caption || messageData.content || `[${messageData.type}]`,
+      customerNumber: conversationId,
+      unreadCount: FieldValue.increment(1)
+    };
+
+    if (profileName) {
+      conversationUpdate.customerName = profileName;
+    }
+
+    await conversationRef.set(conversationUpdate, { merge: true });
+    console.log(`✅ Conversation metadata updated for ${conversationId}`);
+  } catch (error) {
+    console.error(`🔴 FAILED to update conversation metadata for ${conversationId}:`, error);
+    // We don't re-throw here as the primary message storage succeeded.
+  }
+}
+
 /**
  * Processes an incoming WhatsApp message: stores it, generates an AI response,
  * sends the response, and stores the response.
  */
 async function processMessageAsync(userId: string, message: any, contact: any) {
     const from = message.from;
+    const profileName = contact?.profile?.name;
     
     try {
         const { accessToken } = await getWhatsAppCredentials(userId, ['accessToken']);
@@ -132,16 +163,16 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
                 messageToStore.mediaUrl = dataUri;
                 messageToStore.mimeType = mimeType;
                 
-                 if (message[mediaType].caption) {
+                if (message[mediaType].caption) {
                     messageToStore.caption = message[mediaType].caption;
                     incomingMessageContent += `[${mediaType} with caption: ${message[mediaType].caption}]`;
                 }
                 
-                 if (mediaType === 'document' && message.document.filename) {
+                if (mediaType === 'document' && message.document.filename) {
                     messageToStore.content = message.document.filename;
                     incomingMessageContent = `[Document: ${message.document.filename}]`
                 } else {
-                    messageToStore.content = `[${mediaType}]`; // A generic placeholder
+                    messageToStore.content = `[${mediaType}]`;
                     incomingMessageContent = `[${mediaType} message]`;
                 }
                 break;
@@ -150,8 +181,9 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
                 incomingMessageContent = `[Unsupported message type]`;
         }
 
-        await storeMessage(userId, from, messageToStore, contact?.profile?.name);
-        console.log(`✅ Stored message from ${from}.`);
+        // Follow architecture: Store message first, then update metadata.
+        await storeMessageInDb(userId, from, messageToStore);
+        await updateConversationMetadata(userId, from, messageToStore, profileName);
         
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
         if (userSettingsDoc.data()?.ai?.status === 'verified') {
@@ -173,58 +205,8 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
 
     } catch (error) {
         console.error(`🔴 UNEXPECTED ERROR processing message from ${from}:`, error);
-        // Do not send an automated error response to avoid potential loops.
     }
 }
-
-
-/**
- * Atomically stores a message and updates conversation metadata using a transaction.
- */
-async function storeMessage(userId: string, conversationId: string, messageData: any, profileName?: string) {
-  const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
-  const messagesColRef = conversationRef.collection('messages');
-  
-  try {
-    await db.runTransaction(async (transaction) => {
-      const convDoc = await transaction.get(conversationRef);
-
-      const conversationUpdate: any = {
-        lastUpdated: FieldValue.serverTimestamp(),
-        lastMessage: messageData.caption || messageData.content || `[${messageData.type}]`,
-        customerNumber: conversationId,
-      };
-
-      if (!convDoc.exists) {
-        // Conversation is new
-        if (profileName) {
-            conversationUpdate.customerName = profileName;
-        } else {
-             conversationUpdate.customerName = `Customer ${conversationId.slice(-4)}`;
-        }
-        conversationUpdate.unreadCount = 1;
-        transaction.set(conversationRef, conversationUpdate);
-      } else {
-        // Conversation exists, increment unread count
-        conversationUpdate.unreadCount = FieldValue.increment(1);
-         if (profileName && !convDoc.data()?.customerName) {
-            conversationUpdate.customerName = profileName;
-        }
-        transaction.update(conversationRef, conversationUpdate);
-      }
-
-      const newMessageRef = messagesColRef.doc();
-      transaction.set(newMessageRef, messageData);
-    });
-
-    console.log(`✅ Transaction successful: Stored message in conversation ${conversationId}`);
-  } catch (error) {
-    console.error(`🔴 Transaction FAILED for conversation ${conversationId}:`, error);
-    // Re-throw the error to be caught by the calling function
-    throw error;
-  }
-}
-
 
 
 /**
@@ -232,15 +214,12 @@ async function storeMessage(userId: string, conversationId: string, messageData:
  */
 async function getConversationHistory(userId: string, conversationId: string): Promise<string> {
     const messagesRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages');
-    // Get the most recent 20 messages to provide as context to the AI.
     const messagesSnap = await messagesRef.orderBy('timestamp', 'desc').limit(20).get();
 
     if (messagesSnap.empty) {
         return "No previous conversation history.";
     }
-
-    // Reverse the array to have the messages in chronological order for the AI
-    // Use spread `...` to create a shallow copy before reversing to avoid mutating the original array.
+    
     const orderedDocs = [...messagesSnap.docs].reverse();
 
     return orderedDocs.map(doc => {
@@ -260,5 +239,3 @@ async function getConversationHistory(userId: string, conversationId: string): P
         return `${sender}: ${content}`;
     }).join('\n');
 }
-
-    
