@@ -250,7 +250,7 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
           </Button>
         </div>
       </div>
-      <ScrollArea className="flex-1 p-0 overflow-y-auto" ref={scrollAreaRef}>
+      <ScrollArea className="flex-1 p-0" ref={scrollAreaRef}>
           <div className="p-4 md:p-6">
             {isLoading ? (
                 <div className="space-y-4">
