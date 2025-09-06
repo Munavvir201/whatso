@@ -294,18 +294,32 @@ async function getConversationHistory(userId: string, conversationId: string): P
         const data = doc.data();
         const sender = data.sender === 'customer' ? 'Customer' : 'Agent';
         let content;
-        if (data.type === 'text') {
-            content = data.content;
-        } else if (data.caption) {
-            content = `[${data.type} with caption: ${data.caption}]`;
-        } else if (data.content) {
-            content = `[${data.type}: ${data.content}]`
+        
+        switch (data.type) {
+            case 'text':
+                content = data.content;
+                break;
+            case 'image':
+            case 'audio':
+            case 'video':
+            case 'document':
+            case 'sticker':
+                 if (data.caption) {
+                    content = `[${data.type} with caption: ${data.caption}]`;
+                } else if (data.type === 'document' && data.content) {
+                    content = `[Document: ${data.content}]`;
+                } else {
+                    content = `[${data.type} message]`;
+                }
+                break;
+            default:
+                content = data.content || `[Unsupported: ${data.type}]`;
         }
-        else {
-             content = `[${data.type} message]`;
-        }
+
         return `${sender}: ${content}`;
     }).join('\n');
 }
+
+    
 
     
