@@ -216,6 +216,10 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
         
         // --- STEP 3: Check for AI and generate a response ---
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
+        if (!userSettingsDoc.exists) {
+            console.log("🤖 User settings not found. Cannot check for AI status.");
+            return;
+        }
         const settings = userSettingsDoc.data();
         
         const isGlobalAiEnabled = settings?.ai?.status === 'verified';
@@ -226,7 +230,7 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
         }
 
         const conversationDoc = await db.collection('userSettings').doc(userId).collection('conversations').doc(from).get();
-        const isChatAiEnabled = conversationDoc.data()?.isAiEnabled !== false;
+        const isChatAiEnabled = conversationDoc.exists && conversationDoc.data()?.isAiEnabled !== false;
 
         if (isChatAiEnabled) {
             console.log('🤖 AI is enabled for this chat. Generating response...');
