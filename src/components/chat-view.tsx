@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils"
 import { Skeleton } from './ui/skeleton';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
-import { collection, onSnapshot, query, orderBy, Timestamp, doc, getDoc, setDoc, writeBatch, FieldValue } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, Timestamp, doc, getDoc, setDoc, writeBatch, FieldValue, serverTimestamp } from 'firebase/firestore';
 import type { Message, Chat } from '@/types/chat';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
@@ -274,7 +274,7 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                 sender: 'agent',
                 content: messageContent,
                 type: 'text',
-                timestamp: Timestamp.now(),
+                timestamp: serverTimestamp(),
                 whatsappMessageId: response.messages[0].id
             });
 
@@ -316,7 +316,7 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                 type: type,
                 mediaUrl: dataUri,
                 mimeType: file.type,
-                timestamp: Timestamp.now(),
+                timestamp: serverTimestamp(),
                 whatsappMessageId: response.messages[0].id,
             });
 
@@ -351,7 +351,9 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
     };
 
     const stopRecording = () => {
-        mediaRecorderRef.current?.stop();
+        if (mediaRecorderRef.current?.state === 'recording') {
+            mediaRecorderRef.current.stop();
+        }
     };
     
     const cancelRecording = () => {
@@ -375,7 +377,7 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                 reader.onloadend = () => resolve(reader.result as string);
                 reader.readAsDataURL(recordedBlob);
             });
-            await storeMessageInDb({ sender: 'agent', type: 'audio', mediaUrl: dataUri, mimeType: recordedBlob.type, content: 'Voice message', timestamp: Timestamp.now(), whatsappMessageId: response.messages[0].id });
+            await storeMessageInDb({ sender: 'agent', type: 'audio', mediaUrl: dataUri, mimeType: recordedBlob.type, content: 'Voice message', timestamp: serverTimestamp(), whatsappMessageId: response.messages[0].id });
         } catch(e: any) {
              toast({ variant: "destructive", title: "Failed to send voice message", description: e.message });
         } finally {
@@ -385,7 +387,7 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
     }
     
     useEffect(() => {
-        if (isRecording && recordedBlob) {
+        if (recordedBlob) {
             sendRecording();
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
