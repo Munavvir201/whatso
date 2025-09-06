@@ -59,23 +59,30 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
     
     try {
         const body = await req.json();
-        console.log('--- New WhatsApp Message Received ---', JSON.stringify(body, null, 2));
+        console.log('--- New WhatsApp Webhook Event Received ---', JSON.stringify(body, null, 2));
 
-        // Correctly parse the message and contact object from the payload
-        const value = body.entry?.[0]?.changes?.[0]?.value;
-        const message = value?.messages?.[0];
-        const contact = value?.contacts?.[0];
-        
-        if (body.object !== 'whatsapp_business_account' || !message) {
-            console.log('Discarding: Not a valid WhatsApp message payload.');
-            return NextResponse.json({ status: 'not a valid whatsapp message' }, { status: 200 });
+        if (body.object !== 'whatsapp_business_account') {
+            console.log("Discarding: Not a WhatsApp business account update.");
+            return NextResponse.json({ status: 'not a whatsapp business account event' }, { status: 200 });
         }
 
+        const value = body.entry?.[0]?.changes?.[0]?.value;
+
+        // Gracefully handle webhooks that are not messages (e.g., read receipts)
+        if (!value || !value.messages) {
+             console.log("Discarding: Event is not a message (e.g., status update, read receipt).");
+             return NextResponse.json({ status: 'event is not a message' }, { status: 200 });
+        }
+
+        const message = value.messages[0];
+        const contact = value.contacts?.[0]; // Contacts may not always be present
+        
         // Don't await this. Process in the background to respond to Meta quickly.
         processMessageAsync(userId, message, contact).catch(err => {
             console.error("Error in async message processing:", err);
         });
 
+        // Return a 200 OK response to Meta immediately.
         return NextResponse.json({ status: 'ok' }, { status: 200 });
 
     } catch (error) {
@@ -121,16 +128,17 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
                 messageToStore.mediaUrl = dataUri;
                 messageToStore.mimeType = mimeType;
                 
-                if (message[mediaType].caption) {
+                 if (message[mediaType].caption) {
                     messageToStore.caption = message[mediaType].caption;
-                    incomingMessageContent += `Caption: ${message[mediaType].caption}`;
+                    incomingMessageContent += `[${mediaType} with caption: ${message[mediaType].caption}]`;
                 }
+                
                  if (mediaType === 'document' && message.document.filename) {
                     messageToStore.content = message.document.filename;
                     incomingMessageContent = `[Document: ${message.document.filename}]`
                 } else {
-                    messageToStore.content = `[${mediaType}]`;
-                    incomingMessageContent = `[${mediaType}]`;
+                    messageToStore.content = `[${mediaType}]`; // A generic placeholder
+                    incomingMessageContent = `[${mediaType} message]`;
                 }
                 break;
             default:
@@ -197,7 +205,7 @@ async function storeMessage(userId: string, conversationId: string, messageData:
     
     // If a profile name is provided by the webhook, set it.
     // This will only set the name if the document is being created,
-    // or if the name doesn't exist, thanks to `merge: true`.
+    // or if the name doesn't exist yet, thanks to `merge: true`.
     if (profileName) {
         conversationUpdate.customerName = profileName;
     }
@@ -237,10 +245,14 @@ async function getConversationHistory(userId: string, conversationId: string): P
             content = data.content;
         } else if (data.caption) {
             content = `[${data.type} with caption: ${data.caption}]`;
-        } else {
+        } else if (data.content) {
+            content = `[${data.type}: ${data.content}]`
+        }
+        else {
              content = `[${data.type} message]`;
         }
         return `${sender}: ${content}`;
     }).join('\n');
 }
+
 
