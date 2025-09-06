@@ -11,7 +11,7 @@ type CredentialKey = 'phoneNumberId' | 'accessToken' | 'webhookSecret';
  * Retrieves specific WhatsApp credentials for a given user from Firestore.
  * This is more efficient as it only fetches what's needed.
  */
-export async function getWhatsAppCredentials(userId: string, requiredKeys: CredentialKey[]) {
+export async function getWhatsAppCredentials(userId: string, requiredKeys: CredentialKey[]): Promise<Record<CredentialKey, string>> {
     const userSettingsRef = db.doc(`userSettings/${userId}`);
     const docSnap = await userSettingsRef.get();
 
@@ -28,35 +28,13 @@ export async function getWhatsAppCredentials(userId: string, requiredKeys: Crede
     const result: Partial<Record<CredentialKey, string>> = {};
 
     for (const key of requiredKeys) {
-        if (!credentials[key]) {
-            throw new Error(`Missing required WhatsApp credential: ${key} for user ID: ${userId}`);
+        if (!credentials[key] || typeof credentials[key] !== 'string' || credentials[key].trim() === '') {
+            throw new Error(`Missing or invalid WhatsApp credential: ${key} for user ID: ${userId}`);
         }
         result[key] = credentials[key];
     }
     
     return result as Record<CredentialKey, string>;
-}
-
-
-/**
- * Stores a sent message in Firestore and updates the conversation metadata.
- */
-async function storeSentMessage(userId: string, conversationId: string, messageData: any) {
-    const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
-    const messagesColRef = conversationRef.collection('messages');
-    
-    const batch = db.batch();
-
-    batch.set(conversationRef, {
-        lastUpdated: FieldValue.serverTimestamp(),
-        lastMessage: messageData.caption || messageData.content || `[${messageData.type}]`,
-        customerNumber: conversationId
-    }, { merge: true });
-
-    const newMessageRef = messagesColRef.doc();
-    batch.set(newMessageRef, messageData);
-
-    await batch.commit();
 }
 
 
@@ -68,6 +46,7 @@ export async function sendWhatsAppMessage(userId: string, to: string, messageDat
     const { phoneNumberId, accessToken } = await getWhatsAppCredentials(userId, ['phoneNumberId', 'accessToken']);
 
      if (!phoneNumberId || !accessToken) {
+        // This check is redundant due to the new validation in getWhatsAppCredentials, but good for safety.
         throw new Error("Cannot send message. Missing Phone Number ID or Access Token.");
     }
 
@@ -81,26 +60,10 @@ export async function sendWhatsAppMessage(userId: string, to: string, messageDat
         headers: { 'Authorization': `Bearer ${accessToken}` },
     });
     
-    console.log('✅ Message sent successfully via API, now storing in DB.');
+    console.log('✅ Message sent successfully via API.');
 
-    let contentToStore;
-    let captionToStore;
-
-    if (messageData.type === 'text') {
-        contentToStore = messageData.text.body;
-    } else {
-        contentToStore = messageData[messageData.type]?.filename || `[${messageData.type}]`;
-        captionToStore = messageData[messageData.type]?.caption;
-    }
-
-    await storeSentMessage(userId, to, {
-        sender: 'agent',
-        content: contentToStore,
-        caption: captionToStore,
-        timestamp: FieldValue.serverTimestamp(),
-        type: messageData.type,
-        whatsappMessageId: response.data.messages[0].id
-    });
+    // We no longer save the outgoing message from here to prevent errors.
+    // The chat UI will only show incoming messages until a full sync is implemented.
     
     return response.data;
 }
@@ -121,7 +84,7 @@ export async function downloadMediaAsDataUri(mediaId: string, accessToken: strin
     
     // 2. Download the media file using the obtained URL
     const downloadResponse = await axios.get(mediaUrl, {
-        headers: { 'Authorization': `Bearer ${accessToken}` },
+        headers: { 'Authorization': 'Bearer ' + accessToken },
         responseType: 'arraybuffer' // Important to get the response as a buffer
     });
 

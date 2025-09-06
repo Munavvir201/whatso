@@ -5,6 +5,7 @@ import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
 import { getWhatsAppCredentials, downloadMediaAsDataUri, sendWhatsAppMessage } from '@/lib/whatsapp';
 import { genkit } from 'genkit';
 import { googleAI } from '@genkit-ai/googleai';
+import { GoogleAI } from '@genkit-ai/googleai';
 
 /**
  * Handles webhook verification from Meta. This confirms that we own the endpoint.
@@ -91,11 +92,12 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
     }
 }
 
+
 /**
- * Saves the initial message to the database immediately upon receipt.
- * For media, it saves a placeholder and triggers background processing.
+ * Stores the incoming message and triggers media processing if needed.
+ * Returns the necessary info for the AI.
  */
-async function storeInitialMessage(userId: string, conversationId: string, message: any, profileName?: string): Promise<{ messageId: string, contentForAi: string }> {
+async function storeAndProcessMessage(userId: string, conversationId: string, message: any, profileName?: string): Promise<{ messageId: string, contentForAi: string }> {
   const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
   const messageRef = conversationRef.collection('messages').doc();
 
@@ -146,8 +148,6 @@ async function storeInitialMessage(userId: string, conversationId: string, messa
       messageToStore.content = lastMessageSummary;
   }
 
-  // --- ATOMIC WRITE ---
-  // This batch ensures the conversation metadata and the new message are written together.
   const batch = db.batch();
   
   const conversationData: any = {
@@ -168,6 +168,7 @@ async function storeInitialMessage(userId: string, conversationId: string, messa
 
   return { messageId: messageRef.id, contentForAi: incomingMessageContent };
 }
+
 
 /**
  * Handles media download and updates the message record in the background.
@@ -198,25 +199,14 @@ async function processMediaInBackground(userId: string, conversationId: string, 
 
 /**
  * The main asynchronous function to process an incoming WhatsApp message.
- * Follows a "Save First" architecture.
  */
 async function processMessageAsync(userId: string, message: any, contact: any) {
     const from = message.from;
     const profileName = contact?.profile?.name;
     
     try {
-        // --- STEP 1: Immediately store the initial message ---
-        const { messageId, contentForAi } = await storeInitialMessage(userId, from, message, profileName);
+        const { messageId, contentForAi } = await storeAndProcessMessage(userId, from, message, profileName);
         
-        // --- STEP 2: Handle media in the background (if applicable) ---
-        if (['image', 'audio', 'video', 'document', 'sticker'].includes(message.type)) {
-            // This is a non-blocking call
-            processMediaInBackground(userId, from, message, messageId).catch(err => {
-                console.error("🔴 Background media processing failed:", err);
-            });
-        }
-        
-        // --- STEP 3: Check for AI and generate a response ---
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
         if (!userSettingsDoc.exists) {
             console.log("🤖 User settings not found. Cannot check for AI status.");
@@ -225,17 +215,18 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
         const settings = userSettingsDoc.data() || {};
         
         const isGlobalAiEnabled = settings.ai?.status === 'verified';
-        if (!isGlobalAiEnabled) {
-             console.log('🤖 Global AI is disabled for this user. No response will be sent.');
-             return;
-        }
-
         const conversationDoc = await db.collection('userSettings').doc(userId).collection('conversations').doc(from).get();
         const isChatAiEnabled = conversationDoc.exists && conversationDoc.data()?.isAiEnabled !== false;
 
-        if (isChatAiEnabled) {
+        if (isGlobalAiEnabled && isChatAiEnabled) {
             console.log('🤖 AI is enabled for this chat. Generating response...');
             
+            // This is the CRITICAL part: we must have the API key and model here.
+            if (!settings.ai.apiKey || !settings.ai.model) {
+                console.error("🔴 AI settings (apiKey or model) are missing from the user's profile. Cannot generate response.");
+                return;
+            }
+
             const trainingContext = settings.trainingData || {};
             const clientData = trainingContext.clientData || "";
             const trainingInstructions = trainingContext.trainingInstructions || "";
@@ -252,14 +243,18 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
               ${chatFlow}
             `.trim();
 
+            const googleAIPlugin = googleAI({ apiKey: settings.ai.apiKey });
+            const modelName = `googleai/${settings.ai.model}`;
+
+            // We must explicitly configure a new `ai` object here with the user's specific key.
             const ai = genkit({
-                plugins: [googleAI({ apiKey: settings.ai.apiKey })],
-                model: 'googleai/gemini-1.5-flash',
+                plugins: [googleAIPlugin],
+                model: modelName as any,
             });
 
             const aiResult = await automateWhatsAppChat({
                 message: contentForAi,
-                conversationHistory: "No history available.",
+                conversationHistory: "No history available.", // To-do: Implement history retrieval
                 clientData: fullTrainingData,
             });
 
@@ -270,10 +265,19 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
                  console.log(`🤖 AI generated an empty response. Not sending.`);
             }
         } else {
-            console.log('🤖 AI is disabled for this specific chat. No response will be sent.');
+            console.log('🤖 AI is disabled for this user or chat. No response will be sent.');
+        }
+
+        // Handle media in the background AFTER the main logic (including AI response) is done.
+        if (['image', 'audio', 'video', 'document', 'sticker'].includes(message.type)) {
+            processMediaInBackground(userId, from, message, messageId).catch(err => {
+                console.error("🔴 Background media processing failed:", err);
+            });
         }
 
     } catch (error) {
         console.error(`🔴 UNEXPECTED ERROR processing message from ${from}:`, error);
     }
 }
+
+    
