@@ -143,6 +143,9 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
         console.log('--- New WhatsApp Webhook Event Received ---');
 
         const value = body.entry?.[0]?.changes?.[0]?.value;
+        
+        // Log the entire value object to see what we're receiving
+        console.log('Received value object:', JSON.stringify(value, null, 2));
 
         if (!value || (!value.messages && !value.statuses)) {
              console.log("Discarding: Event is not a message or status update.");
