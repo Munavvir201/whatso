@@ -75,10 +75,12 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
         const message = value.messages[0];
         const contact = value.contacts?.[0];
         
+        // This is a fire-and-forget call. We don't await it so we can return a 200 OK response to Meta immediately.
         processMessageAsync(userId, message, contact).catch(err => {
-            console.error("Error in async message processing:", err);
+            console.error("🔴 Error in async message processing:", err);
         });
 
+        // Return a 200 OK response immediately as required by Meta.
         return NextResponse.json({ status: 'ok' }, { status: 200 });
 
     } catch (error) {
@@ -113,7 +115,7 @@ async function storeMessageInDb(userId: string, conversationId: string, messageD
     // 2. Add the new message to the messages subcollection
     const messageToSave = {
         ...messageData,
-        timestamp: FieldValue.serverTimestamp(),
+        timestamp: FieldValue.serverTimestamp(), // Use server timestamp for consistency
     };
     batch.set(messageRef, messageToSave);
     
@@ -160,6 +162,7 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
             case 'sticker':
                 const mediaType = message.type;
                 const mediaId = message[mediaType].id;
+                // Download media and get data URI for storage
                 const { dataUri, mimeType } = await downloadMediaAsDataUri(mediaId, accessToken);
                 
                 messageToStore.mediaUrl = dataUri;

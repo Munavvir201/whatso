@@ -30,7 +30,9 @@ export default function ChatPage() {
     );
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
-        if (!querySnapshot.empty && !activeChatId) { // Check activeChatId again to prevent race conditions
+        // Only set the first chat if no chat is currently active.
+        // This prevents the view from jumping back to the top chat if another message comes in.
+        if (!querySnapshot.empty && !activeChatId) {
             const firstChatId = querySnapshot.docs[0].id;
             setActiveChatId(firstChatId);
         }
