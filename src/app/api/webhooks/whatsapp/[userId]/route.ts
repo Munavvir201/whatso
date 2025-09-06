@@ -88,27 +88,32 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
 
 
 /**
- * Saves a single message document to the database.
+ * Saves a single message document to the database with a server timestamp.
  */
 async function storeMessageInDb(userId: string, conversationId: string, messageData: any) {
   try {
-    await db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages').add(messageData);
+    const messageToSave = {
+        ...messageData,
+        timestamp: FieldValue.serverTimestamp(),
+    };
+    await db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages').add(messageToSave);
     console.log(`✅ Message stored in DB for conversation ${conversationId}`);
   } catch (error) {
     console.error(`🔴 FAILED to store message in DB for conversation ${conversationId}:`, error);
-    throw error; // Re-throw to be caught by the calling function
+    throw error;
   }
 }
+
 
 /**
  * Updates the conversation metadata document (last message, unread count, etc.).
  */
-async function updateConversationMetadata(userId: string, conversationId: string, messageData: any, profileName?: string) {
+async function updateConversationMetadata(userId: string, conversationId: string, lastMessageSummary: string, profileName?: string) {
   const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
   try {
     const conversationUpdate: any = {
       lastUpdated: FieldValue.serverTimestamp(),
-      lastMessage: messageData.caption || messageData.content || `[${messageData.type}]`,
+      lastMessage: lastMessageSummary,
       customerNumber: conversationId,
       unreadCount: FieldValue.increment(1)
     };
@@ -121,9 +126,9 @@ async function updateConversationMetadata(userId: string, conversationId: string
     console.log(`✅ Conversation metadata updated for ${conversationId}`);
   } catch (error) {
     console.error(`🔴 FAILED to update conversation metadata for ${conversationId}:`, error);
-    // We don't re-throw here as the primary message storage succeeded.
   }
 }
+
 
 /**
  * Processes an incoming WhatsApp message: stores it, generates an AI response,
@@ -139,17 +144,18 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
 
         const messageToStore: any = {
             sender: 'customer',
-            timestamp: FieldValue.serverTimestamp(),
             whatsappMessageId: message.id,
             type: message.type
         };
 
         let incomingMessageContent = "";
+        let lastMessageSummary = "";
 
         switch (message.type) {
             case 'text':
                 messageToStore.content = message.text.body;
                 incomingMessageContent = message.text.body;
+                lastMessageSummary = message.text.body;
                 break;
             case 'image':
             case 'audio':
@@ -165,25 +171,27 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
                 
                 if (message[mediaType].caption) {
                     messageToStore.caption = message[mediaType].caption;
-                    incomingMessageContent += `[${mediaType} with caption: ${message[mediaType].caption}]`;
-                }
-                
-                if (mediaType === 'document' && message.document.filename) {
-                    messageToStore.content = message.document.filename;
-                    incomingMessageContent = `[Document: ${message.document.filename}]`
+                    incomingMessageContent = `[${mediaType} with caption: ${message[mediaType].caption}]`;
+                    lastMessageSummary = `📷 ${message[mediaType].caption}`;
+                } else if (mediaType === 'document' && message.document.filename) {
+                     messageToStore.content = message.document.filename;
+                     incomingMessageContent = `[Document: ${message.document.filename}]`;
+                     lastMessageSummary = `📄 ${message.document.filename}`;
                 } else {
-                    messageToStore.content = `[${mediaType}]`;
-                    incomingMessageContent = `[${mediaType} message]`;
+                     const typeEmojiMap = { image: '📷', audio: '🔊', video: '📹', sticker: '🎨' };
+                     lastMessageSummary = `${typeEmojiMap[mediaType as keyof typeof typeEmojiMap] || '📎'} [${mediaType}]`;
+                     incomingMessageContent = `[${mediaType} message]`;
                 }
                 break;
             default:
                 messageToStore.content = `[Unsupported message type: ${message.type}]`;
                 incomingMessageContent = `[Unsupported message type]`;
+                lastMessageSummary = `[Unsupported]`;
         }
 
         // Follow architecture: Store message first, then update metadata.
         await storeMessageInDb(userId, from, messageToStore);
-        await updateConversationMetadata(userId, from, messageToStore, profileName);
+        await updateConversationMetadata(userId, from, lastMessageSummary, profileName);
         
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
         if (userSettingsDoc.data()?.ai?.status === 'verified') {
