@@ -17,12 +17,23 @@ import {
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { Copy, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Copy, Loader2, CheckCircle2, AlertTriangle, Trash2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { db } from "@/lib/firebase";
-import { doc, setDoc, onSnapshot } from "firebase/firestore";
+import { doc, setDoc, onSnapshot, updateDoc, deleteField } from "firebase/firestore";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 
 const formSchema = z.object({
     phoneNumberId: z.string().min(1, { message: "Phone Number ID is required." }),
@@ -74,6 +85,7 @@ export function WhatsappForm() {
       } else {
         setIsEditing(true);
         setSavedCredentials(null);
+        form.reset({ phoneNumberId: "", accessToken: "", webhookSecret: "", status: "pending" });
       }
       setIsFetching(false);
     }, (error) => {
@@ -132,6 +144,28 @@ export function WhatsappForm() {
     });
   }
 
+  const handleDelete = async () => {
+    if (!user) return;
+    const userSettingsRef = doc(db, "userSettings", user.uid);
+    try {
+        await updateDoc(userSettingsRef, {
+           whatsapp: deleteField()
+        });
+        toast({
+            title: "WhatsApp Settings Deleted",
+            description: "Your WhatsApp credentials have been removed.",
+        });
+        setSavedCredentials(null);
+        setIsEditing(true);
+    } catch (error) {
+         toast({
+            variant: "destructive",
+            title: "Deletion Failed",
+            description: "Could not delete WhatsApp settings.",
+        });
+    }
+  }
+
   if (isFetching) {
     return (
         <div className="space-y-6">
@@ -179,7 +213,30 @@ export function WhatsappForm() {
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">Paste this in your Meta for Developers app webhook configuration.</p>
             </div>
-            <Button onClick={() => setIsEditing(true)}>Edit Credentials</Button>
+            <div className="flex items-center gap-2">
+                <Button onClick={() => setIsEditing(true)}>Edit Credentials</Button>
+                 <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <Button variant="destructive">
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This action cannot be undone. This will permanently delete your
+                            WhatsApp API credentials from our servers.
+                        </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete}>Continue</AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+            </div>
         </div>
     )
   }
@@ -258,3 +315,5 @@ export function WhatsappForm() {
     </Form>
   );
 }
+
+    

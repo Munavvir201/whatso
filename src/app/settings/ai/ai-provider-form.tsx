@@ -17,13 +17,24 @@ import {
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { Loader2, CheckCircle2, AlertTriangle, KeyRound } from "lucide-react";
+import { Loader2, CheckCircle2, AlertTriangle, KeyRound, Trash2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { db } from "@/lib/firebase";
-import { doc, setDoc, onSnapshot } from "firebase/firestore";
+import { doc, setDoc, onSnapshot, updateDoc } from "firebase/firestore";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 
 const formSchema = z.object({
     provider: z.enum(["gemini", "openai", "anthropic"]).default("gemini"),
@@ -83,6 +94,7 @@ export function AiProviderForm() {
       } else {
         setIsEditing(true);
         setSavedSettings(null);
+        form.reset({ provider: "gemini", apiKey: "", model: "gemini-2.5-flash", status: "pending" });
       }
       setIsFetching(false);
     }, (error) => {
@@ -146,6 +158,28 @@ export function AiProviderForm() {
     }
   }
 
+  const handleDelete = async () => {
+    if (!user) return;
+    const userSettingsRef = doc(db, "userSettings", user.uid);
+    try {
+        await updateDoc(userSettingsRef, {
+           'ai': admin.firestore.FieldValue.delete()
+        });
+        toast({
+            title: "AI Settings Deleted",
+            description: "Your AI credentials have been removed.",
+        });
+        setSavedSettings(null);
+        setIsEditing(true);
+    } catch (error) {
+         toast({
+            variant: "destructive",
+            title: "Deletion Failed",
+            description: "Could not delete AI settings.",
+        });
+    }
+  }
+
   if (isFetching) {
     return (
         <div className="space-y-6">
@@ -177,7 +211,30 @@ export function AiProviderForm() {
                 <Label>Selected Model</Label>
                 <p className="text-muted-foreground text-sm mt-1 font-mono bg-muted p-2 rounded-md">{savedSettings.model}</p>
             </div>
-            <Button onClick={() => setIsEditing(true)}>Edit Settings</Button>
+            <div className="flex items-center gap-2">
+                <Button onClick={() => setIsEditing(true)}>Edit Settings</Button>
+                <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <Button variant="destructive">
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This action cannot be undone. This will permanently delete your
+                            AI provider credentials from our servers.
+                        </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete}>Continue</AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+            </div>
         </div>
     )
   }
@@ -270,3 +327,5 @@ export function AiProviderForm() {
     </Form>
   );
 }
+
+    
