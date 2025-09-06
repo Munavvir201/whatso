@@ -2,48 +2,93 @@
 
 import React, { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Bot, Clock, Smile, Users } from "lucide-react";
-import { AreaChart, BarChart } from "./charts";
+import { Bot, Users, MessageSquare, Inbox } from "lucide-react";
+import { BarChart } from "./charts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, getCountFromServer, where } from 'firebase/firestore';
+import { useAuth } from '@/hooks/use-auth';
 
-const initialStats = {
-    totalConversations: { value: 0, change: 0 },
-    activeUsers: { value: 0, change: 0 },
-    avgResponseTime: { value: '0s', change: 0 },
-    satisfactionScore: { value: '0%', change: 0 },
+interface DashboardStats {
+    totalConversations: number;
+    totalMessages: number;
+    activeUsers: number;
+    unreadConversations: number;
+    barChartData: { month: string, conversations: number }[];
+}
+
+const initialStats: DashboardStats = {
+    totalConversations: 0,
+    totalMessages: 0,
+    activeUsers: 0,
+    unreadConversations: 0,
     barChartData: [],
-    areaChartData: [],
 };
 
+const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
 export const useDashboardStats = () => {
+    const { user } = useAuth();
     const [stats, setStats] = useState(initialStats);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        const fetchStats = async () => {
-            setIsLoading(true);
-            try {
-                const docRef = doc(db, 'dashboard', 'stats');
-                const docSnap = await getDoc(docRef);
+        if (!user) {
+            setIsLoading(false);
+            return;
+        }
 
-                if (docSnap.exists()) {
-                    setStats(docSnap.data() as any);
-                } else {
-                    console.log("No such document! Using initial stats.");
-                    setStats(initialStats);
+        setIsLoading(true);
+        const conversationsRef = collection(db, 'userSettings', user.uid, 'conversations');
+
+        const unsubscribe = onSnapshot(conversationsRef, async (snapshot) => {
+            const conversations = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+            
+            const totalConversations = conversations.length;
+            const activeUsers = totalConversations; // Assuming each conversation is a unique user
+
+            const unreadConversations = conversations.filter(c => c.unreadCount > 0).length;
+
+            const messageCounts = await Promise.all(
+                conversations.map(async (conv) => {
+                    const messagesColRef = collection(db, 'userSettings', user.uid, 'conversations', conv.id, 'messages');
+                    const messageSnapshot = await getCountFromServer(messagesColRef);
+                    return messageSnapshot.data().count;
+                })
+            );
+            const totalMessages = messageCounts.reduce((acc, count) => acc + count, 0);
+
+            // Calculate bar chart data
+            const monthlyCounts: { [key: number]: number } = {};
+            conversations.forEach(conv => {
+                if (conv.lastUpdated) {
+                    const month = conv.lastUpdated.toDate().getMonth();
+                    monthlyCounts[month] = (monthlyCounts[month] || 0) + 1;
                 }
-            } catch (error) {
-                console.error("Error fetching dashboard stats: ", error);
-                setStats(initialStats);
-            } finally {
-                setIsLoading(false);
-            }
-        };
+            });
 
-        fetchStats();
-    }, []);
+            const barChartData = monthNames.map((name, index) => ({
+                month: name,
+                conversations: monthlyCounts[index] || 0,
+            }));
+            
+
+            setStats({
+                totalConversations,
+                totalMessages,
+                activeUsers,
+                unreadConversations,
+                barChartData
+            });
+            setIsLoading(false);
+        }, (error) => {
+            console.error("Error fetching dashboard stats: ", error);
+            setStats(initialStats);
+            setIsLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, [user]);
 
     return { stats, isLoading };
 };
@@ -57,8 +102,7 @@ export default function DashboardPage() {
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
                     {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-[120px]" />)}
                 </div>
-                <div className="grid gap-6 md:grid-cols-2">
-                    <Skeleton className="h-[420px]" />
+                <div className="grid gap-6">
                     <Skeleton className="h-[420px]" />
                 </div>
             </div>
@@ -74,10 +118,9 @@ export default function DashboardPage() {
                         <Bot className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{stats.totalConversations.value.toLocaleString()}</div>
+                        <div className="text-2xl font-bold">{stats.totalConversations.toLocaleString()}</div>
                         <p className="text-xs text-muted-foreground">
-                            {stats.totalConversations.change > 0 ? '+' : ''}
-                            {stats.totalConversations.change}% from last month
+                            Total number of chats started.
                         </p>
                     </CardContent>
                 </Card>
@@ -87,54 +130,44 @@ export default function DashboardPage() {
                         <Users className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{stats.activeUsers.value}</div>
+                        <div className="text-2xl font-bold">{stats.activeUsers}</div>
                         <p className="text-xs text-muted-foreground">
-                            {stats.activeUsers.change > 0 ? '+' : ''}
-                            {stats.activeUsers.change}% from last month
+                            Number of unique customer chats.
                         </p>
                     </CardContent>
                 </Card>
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Avg. Response Time</CardTitle>
-                        <Clock className="h-4 w-4 text-muted-foreground" />
+                        <CardTitle className="text-sm font-medium">Total Messages</CardTitle>
+                        <MessageSquare className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{stats.avgResponseTime.value}</div>
+                        <div className="text-2xl font-bold">{stats.totalMessages.toLocaleString()}</div>
                         <p className="text-xs text-muted-foreground">
-                            {stats.avgResponseTime.change}% from last month
+                           Incoming and outgoing messages.
                         </p>
                     </CardContent>
                 </Card>
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Satisfaction Score</CardTitle>
-                        <Smile className="h-4 w-4 text-muted-foreground" />
+                        <CardTitle className="text-sm font-medium">Unread Conversations</CardTitle>
+                        <Inbox className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{stats.satisfactionScore.value}</div>
+                        <div className="text-2xl font-bold">{stats.unreadConversations}</div>
                         <p className="text-xs text-muted-foreground">
-                            {stats.satisfactionScore.change > 0 ? '+' : ''}
-                            {stats.satisfactionScore.change}% from last month
+                            Conversations awaiting a reply.
                         </p>
                     </CardContent>
                 </Card>
             </div>
-            <div className="grid gap-6 md:grid-cols-2">
+            <div className="grid gap-6">
                 <Card>
                     <CardHeader>
                         <CardTitle className="font-headline">Conversations This Year</CardTitle>
                     </CardHeader>
                     <CardContent>
                         <BarChart />
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="font-headline">Customer Satisfaction (CSAT)</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <AreaChart />
                     </CardContent>
                 </Card>
             </div>
