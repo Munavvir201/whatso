@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { Bot, Pencil, Send, Paperclip, Mic, MoreVertical, MessageSquare, ChevronLeft } from "lucide-react"
+import { Bot, Pencil, Send, Paperclip, Mic, MoreVertical, MessageSquare, ChevronLeft, Dot, Circle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Skeleton } from './ui/skeleton';
 import { db } from '@/lib/firebase';
@@ -17,6 +17,7 @@ import { collection, onSnapshot, query, orderBy, Timestamp, addDoc, doc, getDoc,
 import type { Message, Chat } from '@/types/chat';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
+import OpusMediaRecorder from 'opus-media-recorder';
 
 interface ChatViewProps {
   activeChat: Chat | null;
@@ -60,7 +61,48 @@ const formatTimestamp = (timestamp: Timestamp | Date | null) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-async function sendWhatsAppMessage(userId: string, to: string, message: string) {
+async function sendWhatsAppMediaMessage(userId: string, to: string, dataUri: string, mimeType: string, type: Message['type'], caption?: string) {
+    const userSettingsRef = doc(db, "userSettings", userId);
+    const docSnap = await getDoc(userSettingsRef);
+    if (!docSnap.exists() || !docSnap.data()?.whatsapp) throw new Error("WhatsApp credentials not configured.");
+    const { phoneNumberId, accessToken } = docSnap.data()?.whatsapp;
+    if (!phoneNumberId || !accessToken) throw new Error("Missing Phone Number ID or Access Token.");
+
+    const formData = new FormData();
+    const blob = await (await fetch(dataUri)).blob();
+    formData.append('file', blob, `file.${mimeType.split('/')[1]}`);
+    formData.append('type', mimeType);
+    formData.append('messaging_product', 'whatsapp');
+
+    const uploadResponse = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/media`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+        body: formData,
+    });
+    if (!uploadResponse.ok) throw new Error(`Failed to upload media: ${await uploadResponse.text()}`);
+    const { id: mediaId } = await uploadResponse.json();
+
+    const messagePayload: any = {
+        messaging_product: 'whatsapp',
+        to: to,
+        type: type,
+        [type]: { id: mediaId },
+    };
+
+    if (type === 'image' && caption) {
+        messagePayload.image.caption = caption;
+    }
+
+    const sendResponse = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(messagePayload),
+    });
+    if (!sendResponse.ok) throw new Error(`Failed to send media message: ${await sendResponse.text()}`);
+    return await sendResponse.json();
+}
+
+async function sendWhatsAppTextMessage(userId: string, to: string, message: string) {
     const userSettingsRef = doc(db, "userSettings", userId);
     const docSnap = await getDoc(userSettingsRef);
 
@@ -145,6 +187,9 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
     const [newMessage, setNewMessage] = useState("");
     const [isSending, setIsSending] = useState(false);
     const viewportRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const [isRecording, setIsRecording] = useState(false);
     const { toast } = useToast();
 
     useEffect(() => {
@@ -167,9 +212,25 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                 });
         }
     };
+    
+    const storeAndSetMessage = async (messageData: Omit<Message, 'id' | 'timestamp'>) => {
+        if (!user || !activeChat) return;
 
+        const conversationRef = doc(db, "userSettings", user.uid, "conversations", activeChat.id);
+        const messagesRef = collection(conversationRef, "messages");
+        
+        await addDoc(messagesRef, {
+            ...messageData,
+            timestamp: Timestamp.now(),
+        });
+        
+        await setDoc(conversationRef, {
+            lastMessage: messageData.caption || messageData.content || `[${messageData.type}]`,
+            lastUpdated: Timestamp.now() as FieldValue,
+        }, { merge: true });
+    };
 
-    const handleSendMessage = async (e: React.FormEvent) => {
+    const handleSendTextMessage = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newMessage.trim() || !activeChat || !user) return;
         
@@ -179,22 +240,12 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         setNewMessage("");
 
         try {
-            await sendWhatsAppMessage(user.uid, activeChat.id, messageContent);
-
-            const conversationRef = doc(db, "userSettings", user.uid, "conversations", activeChat.id);
-            const messagesRef = collection(conversationRef, "messages");
-            
-            await addDoc(messagesRef, {
+            await sendWhatsAppTextMessage(user.uid, activeChat.id, messageContent);
+            await storeAndSetMessage({
                 sender: 'agent',
                 content: messageContent,
-                timestamp: Timestamp.now(),
                 type: 'text'
             });
-
-            await setDoc(conversationRef, {
-                lastMessage: messageContent,
-                lastUpdated: Timestamp.now() as FieldValue,
-            }, { merge: true });
 
         } catch (error: any) {
              toast({
@@ -207,6 +258,85 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
             setIsSending(false);
         }
     }
+    
+    const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file || !user || !activeChat) return;
+
+        setIsSending(true);
+        try {
+            const dataUri = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target?.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+            
+            let type: Message['type'] = 'document';
+            if (file.type.startsWith('image/')) type = 'image';
+            else if (file.type.startsWith('video/')) type = 'video';
+            else if (file.type.startsWith('audio/')) type = 'audio';
+
+            await sendWhatsAppMediaMessage(user.uid, activeChat.id, dataUri, file.type, type);
+            
+            await storeAndSetMessage({
+                sender: 'agent',
+                content: file.name,
+                type: type,
+                mediaUrl: dataUri,
+                mimeType: file.type,
+            });
+
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Failed to send file", description: error.message });
+        } finally {
+            setIsSending(false);
+        }
+        event.target.value = ''; // Reset file input
+    };
+
+    const handleMicClick = async () => {
+        if (isRecording) {
+            mediaRecorderRef.current?.stop();
+            setIsRecording(false);
+            return;
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const options = { mimeType: 'audio/ogg;codecs=opus' };
+            const workerUrl = new URL('opus-media-recorder/encoderWorker.umd.js', import.meta.url).href;
+            mediaRecorderRef.current = new OpusMediaRecorder(stream, options, { workerUrl });
+
+            const chunks: BlobPart[] = [];
+            mediaRecorderRef.current.ondataavailable = (e) => chunks.push(e.data);
+            mediaRecorderRef.current.onstop = async () => {
+                const blob = new Blob(chunks, { type: 'audio/ogg; codecs=opus' });
+                const dataUri = await new Promise<string>(resolve => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.readAsDataURL(blob);
+                });
+
+                if (!user || !activeChat) return;
+                setIsSending(true);
+                try {
+                    await sendWhatsAppMediaMessage(user.uid, activeChat.id, dataUri, blob.type, 'audio');
+                    await storeAndSetMessage({ sender: 'agent', type: 'audio', mediaUrl: dataUri, mimeType: blob.type, content: 'Voice message' });
+                } catch(e: any) {
+                     toast({ variant: "destructive", title: "Failed to send voice message", description: e.message });
+                } finally {
+                    setIsSending(false);
+                }
+            };
+            mediaRecorderRef.current.start();
+            setIsRecording(true);
+        } catch (err) {
+            console.error("Error accessing microphone:", err);
+            toast({ variant: "destructive", title: "Microphone access denied", description: "Please enable microphone permissions in your browser." });
+        }
+    };
+
 
   if (!activeChat) {
     return (
@@ -253,8 +383,8 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
           </Button>
         </div>
       </div>
-      <div className="flex-1 min-h-0">
-        <ScrollArea className="h-full" viewportRef={viewportRef}>
+      <div className="flex-1 flex flex-col min-h-0">
+        <ScrollArea className="flex-1" viewportRef={viewportRef}>
             <div className="p-4 md:p-6">
                 {isLoading ? (
                     <div className="space-y-4">
@@ -295,8 +425,9 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         </ScrollArea>
       </div>
       <div className="p-4 border-t flex-shrink-0 bg-background/80 backdrop-blur-sm">
-        <form className="flex w-full items-center space-x-2" onSubmit={handleSendMessage}>
-            <Button type="button" variant="ghost" size="icon" className="flex-shrink-0 text-muted-foreground">
+        <form className="flex w-full items-center space-x-2" onSubmit={handleSendTextMessage}>
+            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+            <Button type="button" variant="ghost" size="icon" className="flex-shrink-0 text-muted-foreground" onClick={() => fileInputRef.current?.click()} disabled={isSending}>
                 <Paperclip className="h-5 w-5" />
                 <span className="sr-only">Attach file</span>
             </Button>
@@ -304,12 +435,12 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                 placeholder="Type your message here... (Shift+Enter for new line)"
                 className="flex-1 min-h-[40px] max-h-32 resize-none bg-background border-border focus-visible:ring-1"
                 value={newMessage}
-                disabled={isSending}
+                disabled={isSending || isRecording}
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
-                        handleSendMessage(e);
+                        handleSendTextMessage(e);
                     }
                 }}
             />
@@ -319,8 +450,8 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                     <span className="sr-only">Send</span>
                 </Button>
             ) : (
-                <Button type="button" variant="ghost" size="icon" className="flex-shrink-0 text-muted-foreground">
-                    <Mic className="h-5 w-5" />
+                <Button type="button" variant={isRecording ? "destructive" : "ghost"} size="icon" className="flex-shrink-0 text-muted-foreground" onClick={handleMicClick} disabled={isSending}>
+                    {isRecording ? <Circle className="h-5 w-5 text-white fill-white" /> : <Mic className="h-5 w-5" />}
                     <span className="sr-only">Record voice message</span>
                 </Button>
             )}

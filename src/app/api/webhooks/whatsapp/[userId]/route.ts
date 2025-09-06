@@ -3,15 +3,28 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db, FieldValue } from '@/lib/firebase-admin';
 import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
 import axios from 'axios';
+import * as admin from 'firebase-admin';
+
+// Helper function to get a document reference from Firestore
+const getDocRef = (path: string) => db.doc(path);
+
+// Fetches a document's data from Firestore
+async function getDocument(ref: admin.firestore.DocumentReference) {
+  const docSnap = await ref.get();
+  if (!docSnap.exists) {
+    throw new Error(`Document does not exist at path: ${ref.path}`);
+  }
+  return docSnap.data();
+}
 
 async function getWhatsAppCredentials(userId: string) {
-    const userSettingsRef = db.collection('userSettings').doc(userId);
-    const docSnap = await userSettingsRef.get();
+    const userSettingsRef = getDocRef(`userSettings/${userId}`);
+    const userData = await getDocument(userSettingsRef);
 
-    if (!docSnap.exists || !docSnap.data()?.whatsapp) {
+    if (!userData || !userData.whatsapp) {
         throw new Error("WhatsApp credentials not configured for this user.");
     }
-    const { phoneNumberId, accessToken, webhookSecret } = docSnap.data()?.whatsapp;
+    const { phoneNumberId, accessToken, webhookSecret } = userData.whatsapp;
     if (!phoneNumberId || !accessToken || !webhookSecret) {
         throw new Error("Missing Phone Number ID, Access Token, or Webhook Secret.");
     }
@@ -56,7 +69,7 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
     }
   } catch (error: any) {
     console.error('🔴 UNEXPECTED ERROR during verification:', error);
-    if (error.message.includes("not configured")) {
+    if (error.message.includes("not configured") || error.message.includes("does not exist")) {
          return NextResponse.json({ error: 'User settings or webhook secret not found' }, { status: 404 });
     }
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -232,7 +245,7 @@ async function storeMessage(userId: string, conversationId: string, messageData:
 
     batch.set(conversationRef, {
         lastUpdated: FieldValue.serverTimestamp(),
-        lastMessage: messageData.caption || messageData.content,
+        lastMessage: messageData.caption || messageData.content || `[${messageData.type}]`,
         customerName: 'Customer ' + conversationId.slice(-4), // Placeholder name
         customerNumber: conversationId,
     }, { merge: true });
