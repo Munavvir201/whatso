@@ -202,7 +202,6 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
     const [isRecording, setIsRecording] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
     const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-    const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
     const { toast } = useToast();
 
     useEffect(() => {
@@ -254,7 +253,7 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         batch.set(messagesRef, messageData);
         batch.update(conversationRef, {
             lastMessage: messageData.caption || messageData.content || `[${messageData.type}]`,
-            lastUpdated: messageData.timestamp,
+            lastUpdated: serverTimestamp(),
         });
 
         await batch.commit();
@@ -328,6 +327,27 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         if (event.target) event.target.value = '';
     };
 
+    const sendRecording = async (audioBlob: Blob) => {
+        if (!audioBlob || !user || !activeChat) return;
+
+        setIsSending(true);
+        setIsRecording(false);
+
+        try {
+            const response = await sendWhatsAppMediaMessage(user.uid, activeChat.id, audioBlob, 'audio');
+            const dataUri = await new Promise<string>(resolve => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(audioBlob);
+            });
+            await storeMessageInDb({ sender: 'agent', type: 'audio', mediaUrl: dataUri, mimeType: audioBlob.type, content: 'Voice message', timestamp: serverTimestamp(), whatsappMessageId: response.messages[0].id });
+        } catch(e: any) {
+             toast({ variant: "destructive", title: "Failed to send voice message", description: e.message });
+        } finally {
+            setIsSending(false);
+        }
+    }
+
     const startRecording = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -339,7 +359,7 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
             mediaRecorderRef.current.ondataavailable = (e) => chunks.push(e.data);
             mediaRecorderRef.current.onstop = () => {
                 const audioBlob = new Blob(chunks, { type: 'audio/ogg; codecs=opus' });
-                setRecordedBlob(audioBlob);
+                sendRecording(audioBlob);
                 stream.getTracks().forEach(track => track.stop());
             };
             mediaRecorderRef.current.start();
@@ -361,38 +381,8 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
             mediaRecorderRef.current.stop();
         }
         setIsRecording(false);
-        setRecordedBlob(null);
     }
     
-    const sendRecording = async () => {
-        if (!recordedBlob || !user || !activeChat) return;
-
-        setIsSending(true);
-        setIsRecording(false);
-
-        try {
-            const response = await sendWhatsAppMediaMessage(user.uid, activeChat.id, recordedBlob, 'audio');
-            const dataUri = await new Promise<string>(resolve => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result as string);
-                reader.readAsDataURL(recordedBlob);
-            });
-            await storeMessageInDb({ sender: 'agent', type: 'audio', mediaUrl: dataUri, mimeType: recordedBlob.type, content: 'Voice message', timestamp: serverTimestamp(), whatsappMessageId: response.messages[0].id });
-        } catch(e: any) {
-             toast({ variant: "destructive", title: "Failed to send voice message", description: e.message });
-        } finally {
-            setIsSending(false);
-            setRecordedBlob(null);
-        }
-    }
-    
-    useEffect(() => {
-        if (recordedBlob) {
-            sendRecording();
-        }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [recordedBlob]);
-
     const formatRecordingTime = (time: number) => {
         const minutes = Math.floor(time / 60);
         const seconds = time % 60;
