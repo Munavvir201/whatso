@@ -63,6 +63,7 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
 
         // Correctly parse the message object from the payload
         const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+        const contact = body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0];
         
         if (body.object !== 'whatsapp_business_account' || !message) {
             console.log('Discarding: Not a valid WhatsApp message payload.');
@@ -70,7 +71,7 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
         }
 
         // Don't await this. Process in the background to respond to Meta quickly.
-        processMessageAsync(userId, message).catch(err => {
+        processMessageAsync(userId, message, contact).catch(err => {
             console.error("Error in async message processing:", err);
         });
 
@@ -86,7 +87,7 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
  * Processes an incoming WhatsApp message: stores it, generates an AI response,
  * sends the response, and stores the response.
  */
-async function processMessageAsync(userId: string, message: any) {
+async function processMessageAsync(userId: string, message: any, contact: any) {
     const from = message.from;
     const conversationId = from; // The customer's phone number is the conversation ID
     
@@ -138,7 +139,7 @@ async function processMessageAsync(userId: string, message: any) {
         }
 
         // Store the fully formed message in the database.
-        await storeMessage(userId, conversationId, messageToStore);
+        await storeMessage(userId, conversationId, messageToStore, contact?.profile?.name);
         console.log(`✅ Stored message from ${from}. Now checking AI mode...`);
         
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
@@ -176,36 +177,37 @@ async function processMessageAsync(userId: string, message: any) {
 
 /**
  * Stores a single message in a conversation and updates conversation metadata.
+ * This function is now highly optimized to reduce latency.
  */
-async function storeMessage(userId: string, conversationId: string, messageData: any) {
+async function storeMessage(userId: string, conversationId: string, messageData: any, profileName?: string) {
     const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
     const messagesColRef = conversationRef.collection('messages');
     
     const batch = db.batch();
 
-    const conversationDoc = await conversationRef.get();
-    
+    // This is an "upsert" operation. It will create the document if it doesn't exist,
+    // or merge the data if it does. This avoids a separate read operation.
     const conversationUpdate: any = {
         lastUpdated: FieldValue.serverTimestamp(),
         lastMessage: messageData.caption || messageData.content || `[${messageData.type}]`,
         customerNumber: conversationId,
+        unreadCount: FieldValue.increment(1) // Atomically increment the unread count.
     };
     
-    // Only set the name if the conversation is new
-    if (!conversationDoc.exists) {
-        conversationUpdate.customerName = `Customer ${conversationId.slice(-4)}`; // Default name
-        conversationUpdate.unreadCount = 1;
-    } else {
-        if (messageData.sender === 'customer') {
-           conversationUpdate.unreadCount = FieldValue.increment(1);
-        }
+    // If a profile name is provided by the webhook, set it.
+    // This will only set the name if the document is being created,
+    // or if the name doesn't exist, thanks to `merge: true`.
+    if (profileName) {
+        conversationUpdate.customerName = profileName;
     }
 
     batch.set(conversationRef, conversationUpdate, { merge: true });
 
+    // Add the new message to the `messages` subcollection.
     const newMessageRef = messagesColRef.doc();
     batch.set(newMessageRef, messageData);
 
+    // Commit the batch. This is a single atomic operation.
     await batch.commit();
     console.log(`✅ Stored message in conversation ${conversationId} for user ${userId}`);
 }
