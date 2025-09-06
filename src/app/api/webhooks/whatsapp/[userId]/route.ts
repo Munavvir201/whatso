@@ -93,7 +93,7 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
  * Saves the initial message to the database immediately upon receipt.
  * For media, it saves a placeholder and triggers background processing.
  */
-async function storeInitialMessage(userId: string, conversationId: string, message: any, profileName?: string): Promise<string> {
+async function storeInitialMessage(userId: string, conversationId: string, message: any, profileName?: string): Promise<{ messageId: string, contentForAi: string }> {
   const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
   const messageRef = conversationRef.collection('messages').doc();
 
@@ -164,7 +164,7 @@ async function storeInitialMessage(userId: string, conversationId: string, messa
   await batch.commit();
   console.log(`✅ Initial message ${messageRef.id} stored for conversation ${conversationId}.`);
 
-  return incomingMessageContent;
+  return { messageId: messageRef.id, contentForAi: incomingMessageContent };
 }
 
 /**
@@ -201,29 +201,28 @@ async function processMediaInBackground(userId: string, conversationId: string, 
 async function processMessageAsync(userId: string, message: any, contact: any) {
     const from = message.from;
     const profileName = contact?.profile?.name;
-    const messageRef = db.collection('userSettings').doc(userId).collection('conversations').doc(from).collection('messages').doc();
-
+    
     try {
         // --- STEP 1: Immediately store the initial message ---
-        const incomingMessageContent = await storeInitialMessage(userId, from, message, profileName);
+        const { messageId, contentForAi } = await storeInitialMessage(userId, from, message, profileName);
         
         // --- STEP 2: Handle media in the background (if applicable) ---
         if (['image', 'audio', 'video', 'document', 'sticker'].includes(message.type)) {
             // This is a non-blocking call
-            processMediaInBackground(userId, from, message, messageRef.id).catch(err => {
+            processMediaInBackground(userId, from, message, messageId).catch(err => {
                 console.error("🔴 Background media processing failed:", err);
             });
         }
         
         // --- STEP 3: Check for AI and generate a response ---
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
-        if (userSettingsDoc.data()?.ai?.status === 'verified') {
+        if (userSettingsDoc.exists && userSettingsDoc.data()?.ai?.status === 'verified') {
             console.log('🤖 AI is enabled. Generating response...');
             const conversationHistory = await getConversationHistory(userId, from);
             const clientData = userSettingsDoc.data()?.trainingData?.clientData || '';
 
             const aiResult = await automateWhatsAppChat({
-                message: incomingMessageContent,
+                message: contentForAi,
                 conversationHistory,
                 clientData
             });
@@ -271,5 +270,3 @@ async function getConversationHistory(userId: string, conversationId: string): P
         return `${sender}: ${content}`;
     }).join('\n');
 }
-
-    
