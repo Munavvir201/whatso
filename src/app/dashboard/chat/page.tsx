@@ -58,11 +58,9 @@ export default function ChatPage() {
   }, [activeChatId, user]);
 
   return (
-    <div className="h-full">
-      <Card className="h-full w-full grid grid-cols-1 md:grid-cols-[320px_1fr] lg:grid-cols-[380px_1fr] overflow-hidden">
+      <Card className="w-full h-full grid grid-cols-1 md:grid-cols-[320px_1fr] lg:grid-cols-[380px_1fr] overflow-hidden">
         <ChatList activeChatId={activeChatId} setActiveChatId={setActiveChatId} />
         <ChatView activeChat={activeChat} />
       </Card>
-    </div>
   );
 }
