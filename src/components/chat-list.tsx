@@ -21,10 +21,13 @@ const useChatList = (userId: string | null) => {
     useEffect(() => {
         if (!userId) {
             setIsLoading(false);
+            setChats([]); // Clear chats if no user
             return;
         }
+
         setIsLoading(true);
         const q = query(collection(db, "userSettings", userId, "conversations"), orderBy("lastUpdated", "desc"));
+        
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
             const chatsData: Chat[] = [];
             querySnapshot.forEach((doc) => {
@@ -33,9 +36,10 @@ const useChatList = (userId: string | null) => {
                 chatsData.push({
                     id: doc.id, // The customer's phone number is the ID
                     name: data.customerName || `Customer ${doc.id.slice(-4)}`,
+                    number: data.customerNumber || doc.id,
                     avatar: `https://picsum.photos/seed/${doc.id}/40/40`,
                     message: data.lastMessage || 'No messages yet.',
-                    time: data.lastUpdated?.toDate().toLocaleTimeString() || '',
+                    time: data.lastUpdated?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || '',
                     unread: data.unreadCount || 0,
                     active: true, // Placeholder
                     ai_hint: 'person face',
@@ -100,7 +104,8 @@ export function ChatList({ activeChatId, setActiveChatId }: { activeChatId: stri
                     <h3 className="font-semibold text-sm">{chat.name}</h3>
                     <span className="text-xs text-muted-foreground">{chat.time}</span>
                   </div>
-                  <p className="text-sm text-muted-foreground truncate">{chat.message}</p>
+                   <p className="text-xs text-muted-foreground font-medium">{chat.number}</p>
+                  <p className="text-sm text-muted-foreground truncate mt-1">{chat.message}</p>
                 </div>
                 {chat.unread > 0 && (
                   <div className="flex items-center h-full">

@@ -84,6 +84,7 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
         }
 
         // Respond to Meta immediately as required, and process the message in the background.
+        // For now, we only store the message. AI response is disabled.
         processMessageAsync(userId, message).catch(err => {
             console.error("Error in async message processing:", err);
         });
@@ -96,37 +97,11 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
     }
 }
 
-async function sendWhatsAppMessage(userId: string, to: string, message: string) {
-    const { phoneNumberId, accessToken } = await getWhatsAppCredentials(userId);
-    
-    const response = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            to: to,
-            text: { body: message },
-        }),
-    });
-
-    if (!response.ok) {
-        const errorData = await response.json();
-        console.error("Failed to send WhatsApp message via API:", errorData);
-        throw new Error(errorData.error?.message || "Failed to send message via WhatsApp API.");
-    }
-
-    const responseData = await response.json();
-    console.log("Successfully sent message via API:", responseData);
-    return responseData;
-}
-
 
 /**
  * Processes an incoming WhatsApp message: stores it, generates an AI response,
  * sends the response, and stores the response.
+ * NOTE: AI part is currently disabled.
  */
 async function processMessageAsync(userId: string, message: any) {
     if (message.type !== 'text' || !message.text?.body) {
@@ -136,10 +111,10 @@ async function processMessageAsync(userId: string, message: any) {
 
     const from = message.from; // Customer's phone number
     const messageBody = message.text.body;
-    const conversationId = from;
+    const conversationId = from; // Use customer's number as the unique ID for the conversation
     
     try {
-        // 1. Store the incoming customer message
+        // Store the incoming customer message
         await storeMessage(userId, conversationId, {
             sender: 'customer',
             content: messageBody,
@@ -147,27 +122,7 @@ async function processMessageAsync(userId: string, message: any) {
             whatsappMessageId: message.id,
         });
 
-        // 2. Get conversation history
-        const history = await getConversationHistory(userId, conversationId);
-
-        // 3. Get AI response
-        const aiResult = await automateWhatsAppChat({
-            message: messageBody,
-            conversationHistory: history,
-        });
-        const aiResponse = aiResult.response;
-
-        // 4. Send AI response via WhatsApp
-        await sendWhatsAppMessage(userId, from, aiResponse);
-
-        // 5. Store the outgoing AI message
-        await storeMessage(userId, conversationId, {
-            sender: 'agent',
-            content: aiResponse,
-            timestamp: FieldValue.serverTimestamp(),
-        });
-
-        console.log(`✅ Successfully processed and responded to message from ${from}`);
+        console.log(`✅ Successfully processed and stored message from ${from} for user ${userId}`);
 
     } catch (error) {
         console.error(`🔴 UNEXPECTED ERROR processing message from ${from}:`, error);

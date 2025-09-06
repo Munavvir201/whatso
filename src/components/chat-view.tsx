@@ -8,12 +8,12 @@ import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { Bot, Send, User } from "lucide-react"
+import { Bot, Pencil, Send, User } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Skeleton } from './ui/skeleton';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
-import { collection, onSnapshot, query, orderBy, Timestamp, addDoc, doc, getDoc, FieldValue } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, Timestamp, addDoc, doc, getDoc, FieldValue, setDoc } from 'firebase/firestore';
 import type { Message, Chat } from '@/types/chat';
 import { useToast } from '@/hooks/use-toast';
 
@@ -103,9 +103,28 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
 
     useEffect(() => {
       if (scrollAreaRef.current) {
-        scrollAreaRef.current.scrollTo({ top: scrollAreaRef.current.scrollHeight, behavior: 'smooth' });
+        const scrollDiv = scrollAreaRef.current.querySelector('div');
+        if(scrollDiv) {
+            scrollDiv.scrollTo({ top: scrollDiv.scrollHeight, behavior: 'smooth' });
+        }
       }
     }, [messages]);
+
+    const handleEditName = () => {
+        if (!activeChat || !user) return;
+        const newName = prompt("Enter new name for this contact:", activeChat.name);
+        if (newName && newName.trim() !== "") {
+            const conversationRef = doc(db, "userSettings", user.uid, "conversations", activeChat.id);
+            setDoc(conversationRef, { customerName: newName.trim() }, { merge: true })
+                .then(() => {
+                    toast({ title: "Name Updated", description: "The contact's name has been updated." });
+                })
+                .catch((error) => {
+                    toast({ variant: "destructive", title: "Error", description: "Could not update the name." });
+                });
+        }
+    };
+
 
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -129,6 +148,12 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
                 content: messageContent,
                 timestamp: Timestamp.now()
             });
+
+            // Also update the last message on the conversation
+            await setDoc(conversationRef, {
+                lastMessage: messageContent,
+                lastUpdated: Timestamp.now(),
+            }, { merge: true });
 
         } catch (error: any) {
              toast({
@@ -161,10 +186,15 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
             <AvatarFallback>{activeChat.name.charAt(0)}</AvatarFallback>
           </Avatar>
           <div>
-            <h3 className="font-semibold text-lg">{activeChat.name}</h3>
+            <div className='flex items-center gap-2'>
+                <h3 className="font-semibold text-lg">{activeChat.name}</h3>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleEditName}>
+                    <Pencil className='h-4 w-4 text-muted-foreground'/>
+                </Button>
+            </div>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <span className={cn("h-2 w-2 rounded-full", activeChat.active ? "bg-green-500" : "bg-gray-400")}></span>
-              {activeChat.active ? "Online" : "Offline"}
+              {activeChat.number}
             </div>
           </div>
         </div>
@@ -176,8 +206,8 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
           </Label>
         </div>
       </div>
-      <div className="flex-1 p-0 overflow-hidden">
-        <ScrollArea className="h-full p-6" ref={scrollAreaRef}>
+      <ScrollArea className="flex-1 p-0 overflow-y-auto" ref={scrollAreaRef}>
+          <div className="p-6">
             {isLoading ? (
                 <div className="space-y-4">
                     <Skeleton className="h-16 w-3/4 ml-auto rounded-lg" />
@@ -203,8 +233,8 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
                     ))}
                 </div>
             )}
-        </ScrollArea>
-      </div>
+          </div>
+      </ScrollArea>
       <div className="p-4 border-t flex-shrink-0">
         <form className="flex w-full items-center space-x-2" onSubmit={handleSendMessage}>
           <Textarea
