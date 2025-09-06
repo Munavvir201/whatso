@@ -61,9 +61,10 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
         const body = await req.json();
         console.log('--- New WhatsApp Message Received ---', JSON.stringify(body, null, 2));
 
-        // Correctly parse the message object from the payload
-        const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-        const contact = body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0];
+        // Correctly parse the message and contact object from the payload
+        const value = body.entry?.[0]?.changes?.[0]?.value;
+        const message = value?.messages?.[0];
+        const contact = value?.contacts?.[0];
         
         if (body.object !== 'whatsapp_business_account' || !message) {
             console.log('Discarding: Not a valid WhatsApp message payload.');
@@ -242,3 +243,4 @@ async function getConversationHistory(userId: string, conversationId: string): P
         return `${sender}: ${content}`;
     }).join('\n');
 }
+
