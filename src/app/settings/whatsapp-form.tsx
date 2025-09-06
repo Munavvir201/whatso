@@ -315,5 +315,3 @@ export function WhatsappForm() {
     </Form>
   );
 }
-
-    

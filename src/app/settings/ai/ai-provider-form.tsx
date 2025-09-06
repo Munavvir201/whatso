@@ -20,7 +20,7 @@ import { useState, useEffect } from "react";
 import { Loader2, CheckCircle2, AlertTriangle, KeyRound, Trash2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { db } from "@/lib/firebase";
-import { doc, setDoc, onSnapshot, updateDoc } from "firebase/firestore";
+import { doc, setDoc, onSnapshot, updateDoc, deleteField } from "firebase/firestore";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -163,7 +163,7 @@ export function AiProviderForm() {
     const userSettingsRef = doc(db, "userSettings", user.uid);
     try {
         await updateDoc(userSettingsRef, {
-           'ai': admin.firestore.FieldValue.delete()
+           ai: deleteField()
         });
         toast({
             title: "AI Settings Deleted",
