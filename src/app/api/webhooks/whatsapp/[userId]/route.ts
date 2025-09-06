@@ -182,66 +182,56 @@ async function processMessageAsync(userId: string, message: any) {
     const conversationId = from;
     const { accessToken } = await getWhatsAppCredentials(userId);
 
+    let incomingMessageContent = "";
     const messageToStore: any = {
         sender: 'customer',
         timestamp: FieldValue.serverTimestamp(),
         whatsappMessageId: message.id,
         type: message.type
     };
-    
-    let incomingMessageContent = "";
-    let mediaInfo = null;
 
-    switch (message.type) {
-        case 'text':
-            messageToStore.content = message.text.body;
-            incomingMessageContent = message.text.body;
-            break;
-        case 'image':
-        case 'audio':
-        case 'video':
-        case 'document':
-        case 'sticker':
-            const mediaType = message.type;
-            mediaInfo = { type: mediaType, id: message[mediaType].id };
-            if (message[mediaType].caption) {
-                messageToStore.caption = message[mediaType].caption;
-                incomingMessageContent += `Caption: ${message[mediaType].caption}`;
-            }
-             if (mediaType === 'document' && message.document.filename) {
-                messageToStore.content = message.document.filename;
-                incomingMessageContent = `[Document: ${message.document.filename}]`
-            } else {
-                messageToStore.content = `[${mediaType}]`;
-                incomingMessageContent = `[${mediaType}]`;
-            }
-            break;
-        default:
-            console.log(`Skipping processing: Unsupported message type '${message.type}'.`);
-            return;
-    }
-    
     try {
-        // Step 1: Store the incoming message immediately for real-time feel.
-        // This also creates the conversation if it doesn't exist.
-        const messageRef = await storeMessage(userId, conversationId, messageToStore, true);
-        console.log(`✅ Stored placeholder for message from ${from}. Now processing...`);
-        
-        // Step 2: If there's media, download it and update the message document in the background.
-        if (mediaInfo) {
-            downloadMediaAsDataUri(mediaInfo.id, accessToken)
-                .then(({ dataUri, mimeType }) => {
-                    const mediaUpdate: any = { mediaUrl: dataUri, mimeType: mimeType };
-                    messageRef.update(mediaUpdate);
-                    console.log(`✅ Media downloaded and message ${messageRef.id} updated.`);
-                })
-                .catch(error => {
-                    console.error(`🔴 FAILED to download ${mediaInfo.type} with ID ${mediaInfo.id}:`, error);
-                    messageRef.update({ content: `[Failed to download ${mediaInfo.type}]` });
-                });
+        switch (message.type) {
+            case 'text':
+                messageToStore.content = message.text.body;
+                incomingMessageContent = message.text.body;
+                break;
+            case 'image':
+            case 'audio':
+            case 'video':
+            case 'document':
+            case 'sticker':
+                const mediaType = message.type;
+                const mediaId = message[mediaType].id;
+                const { dataUri, mimeType } = await downloadMediaAsDataUri(mediaId, accessToken);
+                
+                messageToStore.mediaUrl = dataUri;
+                messageToStore.mimeType = mimeType;
+                
+                if (message[mediaType].caption) {
+                    messageToStore.caption = message[mediaType].caption;
+                    incomingMessageContent += `Caption: ${message[mediaType].caption}`;
+                }
+                 if (mediaType === 'document' && message.document.filename) {
+                    messageToStore.content = message.document.filename;
+                    incomingMessageContent = `[Document: ${message.document.filename}]`
+                } else {
+                    messageToStore.content = `[${mediaType}]`;
+                    incomingMessageContent = `[${mediaType}]`;
+                }
+                break;
+            default:
+                console.log(`Skipping unsupported message type '${message.type}'.`);
+                messageToStore.content = `[Unsupported message type: ${message.type}]`;
+                incomingMessageContent = `[Unsupported message type]`;
+                break;
         }
+
+        // Store the fully formed message in the database.
+        await storeMessage(userId, conversationId, messageToStore);
+        console.log(`✅ Stored message from ${from}. Now generating AI response...`);
         
-        // Step 3: Fetch context and generate AI response.
+        // Fetch context and generate AI response.
         const conversationHistory = await getConversationHistory(userId, conversationId);
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
         const clientData = userSettingsDoc.data()?.trainingData?.clientData || '';
@@ -254,51 +244,51 @@ async function processMessageAsync(userId: string, message: any) {
 
         console.log(`🤖 AI Response generated: "${aiResult.response}"`);
 
-        // Step 4: Send the AI's response back to the user.
-        // The `sendWhatsAppMessage` function will also store the agent's message.
+        // Send the AI's response back to the user.
         await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: aiResult.response } });
 
     } catch (error) {
         console.error(`🔴 UNEXPECTED ERROR processing message from ${from}:`, error);
+        // Optionally send an error message back to the user
+        try {
+            await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: "Sorry, I encountered an error. Please try again." } });
+        } catch (sendError) {
+            console.error(`🔴 Failed to send error message to ${from}:`, sendError);
+        }
     }
 }
 
+
 /**
  * Stores a single message in a conversation and updates conversation metadata.
- * Returns the DocumentReference of the new message.
  */
-async function storeMessage(userId: string, conversationId: string, messageData: any, isIncoming: boolean = false): Promise<admin.firestore.DocumentReference> {
+async function storeMessage(userId: string, conversationId: string, messageData: any) {
     const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
     const messagesColRef = conversationRef.collection('messages');
     
     const batch = db.batch();
 
-    // Data for the conversation document
+    const conversationDoc = await conversationRef.get();
+    
     const conversationUpdate: any = {
         lastUpdated: FieldValue.serverTimestamp(),
         lastMessage: messageData.caption || messageData.content || `[${messageData.type}]`,
         customerNumber: conversationId,
     };
     
-    // Set customer name only if it doesn't exist
-    const conversationDoc = await conversationRef.get();
     if (!conversationDoc.exists()) {
         conversationUpdate.customerName = `Customer ${conversationId.slice(-4)}`;
-    }
-    
-    if (isIncoming) {
+        conversationUpdate.unreadCount = 1;
+    } else {
         conversationUpdate.unreadCount = FieldValue.increment(1);
     }
 
-    // Set conversation data (create or merge)
     batch.set(conversationRef, conversationUpdate, { merge: true });
 
-    // Create the new message document
     const newMessageRef = messagesColRef.doc();
     batch.set(newMessageRef, messageData);
 
     await batch.commit();
-    return newMessageRef;
 }
 
 
