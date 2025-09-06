@@ -71,11 +71,11 @@ export default function ChatPage() {
   }
 
   return (
-      <Card className="w-full h-full grid grid-cols-1 md:grid-cols-[320px_1fr] lg:grid-cols-[380px_1fr] overflow-hidden">
-        <div className={cn("flex flex-col h-full", isMobile && activeChatId ? "hidden" : "flex")}>
+      <Card className="w-full flex-1 grid grid-cols-1 md:grid-cols-[320px_1fr] lg:grid-cols-[380px_1fr] overflow-hidden min-h-0">
+        <div className={cn("flex flex-col min-h-0", isMobile && activeChatId ? "hidden" : "flex")}>
           <ChatList activeChatId={activeChatId} setActiveChatId={handleSelectChat} />
         </div>
-        <div className={cn("flex flex-col h-full", isMobile && !activeChatId ? "hidden" : "flex")}>
+        <div className={cn("flex flex-col min-h-0", isMobile && !activeChatId ? "hidden" : "flex")}>
            <ChatView activeChat={activeChat} onBack={isMobile ? handleBack : undefined} />
         </div>
       </Card>

@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { Bot, Pencil, Send, User, Paperclip, Mic, MoreVertical, MessageSquare, ChevronLeft } from "lucide-react"
+import { Bot, Pencil, Send, Paperclip, Mic, MoreVertical, MessageSquare, ChevronLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Skeleton } from './ui/skeleton';
 import { db } from '@/lib/firebase';
@@ -144,12 +144,12 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
     const { messages, isLoading } = useChatMessages(user?.uid || null, activeChat?.id || null);
     const [newMessage, setNewMessage] = useState("");
     const [isSending, setIsSending] = useState(false);
-    const scrollAreaRef = useRef<HTMLDivElement>(null);
+    const viewportRef = useRef<HTMLDivElement>(null);
     const { toast } = useToast();
 
     useEffect(() => {
-      if (scrollAreaRef.current) {
-        scrollAreaRef.current.scrollTo({ top: scrollAreaRef.current.scrollHeight });
+      if (viewportRef.current) {
+        viewportRef.current.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' });
       }
     }, [messages]);
 
@@ -254,7 +254,7 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         </div>
       </div>
       <div className="flex-1 min-h-0">
-        <ScrollArea className="h-full" viewportRef={scrollAreaRef}>
+        <ScrollArea className="h-full" viewportRef={viewportRef}>
             <div className="p-4 md:p-6">
                 {isLoading ? (
                     <div className="space-y-4">

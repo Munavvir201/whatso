@@ -2,7 +2,7 @@
 "use client";
 
 import { usePathname, useRouter } from 'next/navigation';
-import { SidebarProvider, Sidebar, SidebarInset, SidebarHeader, SidebarContent, SidebarFooter, SidebarTrigger } from '@/components/ui/sidebar';
+import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarFooter } from '@/components/ui/sidebar';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import WhatsOLogo from "@/components/logo";
 import { SidebarNav } from "@/components/sidebar-nav";
@@ -53,7 +53,7 @@ export default function RootLayoutClient({
     }
     
     return (
-      <div className="flex h-screen">
+      <div className="flex h-full">
         <SidebarProvider>
           <Sidebar>
             <SidebarHeader>
@@ -75,7 +75,7 @@ export default function RootLayoutClient({
                </div>
             </SidebarFooter>
           </Sidebar>
-          <div className="flex-1 flex flex-col">
+          <div className="flex-1 flex flex-col h-full min-w-0">
             <PageHeader />
             <main className="flex-1 p-4 md:p-6 flex flex-col min-h-0">
                 {children}
