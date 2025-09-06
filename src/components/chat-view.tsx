@@ -29,19 +29,17 @@ const useChatMessages = (userId: string | null, chatId: string | null) => {
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        if (!chatId || !userId) {
-            setIsLoading(false);
+        if (!userId || !chatId) {
+            setIsLoading(true);
             setMessages([]);
             return;
         };
 
         setIsLoading(true);
         const q = query(collection(db, "userSettings", userId, "conversations", chatId, "messages"), orderBy("timestamp", "asc"));
+        
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const messagesData: Message[] = [];
-            querySnapshot.forEach((doc) => {
-                messagesData.push({ id: doc.id, ...doc.data() } as Message);
-            });
+            const messagesData: Message[] = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
             setMessages(messagesData);
             setIsLoading(false);
         }, (error) => {

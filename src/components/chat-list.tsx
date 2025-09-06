@@ -14,36 +14,35 @@ import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
 import type { Chat } from '@/types/chat';
 
-const useChatList = (userId: string | null) => {
+const useChatList = () => {
+    const { user } = useAuth();
     const [chats, setChats] = useState<Chat[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        if (!userId) {
-            setIsLoading(false);
-            setChats([]); // Clear chats if no user
+        if (!user) {
+            setIsLoading(true);
+            setChats([]);
             return;
         }
 
         setIsLoading(true);
-        const q = query(collection(db, "userSettings", userId, "conversations"), orderBy("lastUpdated", "desc"));
+        const q = query(collection(db, "userSettings", user.uid, "conversations"), orderBy("lastUpdated", "desc"));
         
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const chatsData: Chat[] = [];
-            querySnapshot.forEach((doc) => {
+            const chatsData: Chat[] = querySnapshot.docs.map((doc) => {
                 const data = doc.data();
-                // We create a "Chat" object for the list from conversation data
-                chatsData.push({
-                    id: doc.id, // The customer's phone number is the ID
+                return {
+                    id: doc.id,
                     name: data.customerName || `Customer ${doc.id.slice(-4)}`,
                     number: data.customerNumber || doc.id,
                     avatar: `https://picsum.photos/seed/${doc.id}/40/40`,
                     message: data.lastMessage || 'No messages yet.',
                     time: data.lastUpdated?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || '',
                     unreadCount: data.unreadCount || 0,
-                    active: true, // Placeholder
+                    active: false, // This is determined by the parent component
                     ai_hint: 'person face',
-                });
+                };
             });
             setChats(chatsData);
             setIsLoading(false);
@@ -53,14 +52,13 @@ const useChatList = (userId: string | null) => {
         });
 
         return () => unsubscribe();
-    }, [userId]);
+    }, [user]);
 
     return { chats, isLoading };
 };
 
 export function ChatList({ activeChatId, setActiveChatId }: { activeChatId: string | null, setActiveChatId: (id: string) => void }) {
-  const { user } = useAuth();
-  const { chats, isLoading } = useChatList(user?.uid || null);
+  const { chats, isLoading } = useChatList();
   
   return (
     <div className="border-r bg-muted/20 flex flex-col h-full">

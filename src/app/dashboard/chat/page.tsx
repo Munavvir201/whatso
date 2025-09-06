@@ -1,11 +1,11 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ChatList } from '@/components/chat-list';
 import { ChatView } from '@/components/chat-view';
 import { Card } from '@/components/ui/card';
-import { collection, onSnapshot, query, orderBy, doc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
 import type { Chat } from '@/types/chat';
@@ -21,17 +21,26 @@ export default function ChatPage() {
 
   // Set the first chat as active by default on desktop
   useEffect(() => {
-    if (!user || isMobile) return;
+    if (!user || isMobile || activeChatId) return;
     
-    const q = query(collection(db, "userSettings", user.uid, "conversations"), orderBy("lastUpdated", "desc"));
+    const q = query(
+      collection(db, "userSettings", user.uid, "conversations"), 
+      orderBy("lastUpdated", "desc"),
+      limit(1)
+    );
+
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
-        if (!querySnapshot.empty && !activeChatId) {
+        if (!querySnapshot.empty && !activeChatId) { // Check activeChatId again to prevent race conditions
             const firstChatId = querySnapshot.docs[0].id;
             setActiveChatId(firstChatId);
         }
+    }, (error) => {
+      console.error("Error fetching first chat:", error);
     });
+
     return () => unsubscribe();
-  }, [user, activeChatId, isMobile]);
+  }, [user, isMobile, activeChatId]);
+
 
   // Fetch active chat details when ID changes
   useEffect(() => {
@@ -50,13 +59,16 @@ export default function ChatPage() {
             avatar: `https://picsum.photos/seed/${docSnap.id}/40/40`,
             message: data.lastMessage || '',
             time: data.lastUpdated?.toDate().toLocaleTimeString() || '',
-            unread: 0,
+            unreadCount: 0,
             active: true,
             ai_hint: 'person face'
         });
       } else {
         setActiveChat(null);
       }
+    }, (error) => {
+      console.error(`Error fetching active chat details for ${activeChatId}:`, error);
+      setActiveChat(null);
     });
     return () => unsubscribe();
   }, [activeChatId, user]);
