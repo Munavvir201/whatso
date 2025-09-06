@@ -5,10 +5,90 @@ import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
 import { getWhatsAppCredentials, downloadMediaAsDataUri, sendWhatsAppMessage } from '@/lib/whatsapp';
 import { genkit } from 'genkit';
 import { googleAI } from '@genkit-ai/googleai';
-import { GoogleAI } from '@genkit-ai/googleai';
+
+// This new background processing function will be triggered by a Pub/Sub topic
+// This function will be triggered by a Pub/Sub topic to process messages in the background
+async function processMessageInBackground(userId: string, message: any, contact: any) {
+    const from = message.from;
+    const profileName = contact?.profile?.name;
+    
+    try {
+        const { messageId, contentForAi } = await storeAndProcessMessage(userId, from, message, profileName);
+        
+        const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
+        if (!userSettingsDoc.exists) {
+            console.log("🤖 User settings not found. Cannot check for AI status.");
+            return;
+        }
+        const settings = userSettingsDoc.data() || {};
+        
+        const isGlobalAiEnabled = settings.ai?.status === 'verified';
+        const conversationDoc = await db.collection('userSettings').doc(userId).collection('conversations').doc(from).get();
+        const isChatAiEnabled = conversationDoc.exists && conversationDoc.data()?.isAiEnabled !== false;
+
+        if (isGlobalAiEnabled && isChatAiEnabled) {
+            console.log('🤖 AI is enabled for this chat. Generating response...');
+            
+            if (!settings.ai.apiKey || !settings.ai.model) {
+                console.error("🔴 AI settings (apiKey or model) are missing from the user's profile. Cannot generate response.");
+                return;
+            }
+
+            const trainingContext = settings.trainingData || {};
+            const clientData = trainingContext.clientData || "";
+            const trainingInstructions = trainingContext.trainingInstructions || "";
+            const chatFlow = trainingContext.chatFlow || "";
+            
+            const fullTrainingData = `
+              TRAINING DATA:
+              ${clientData}
+              
+              INSTRUCTIONS:
+              ${trainingInstructions}
+              
+              CHAT FLOW:
+              ${chatFlow}
+            `.trim();
+
+            const googleAIPlugin = googleAI({ apiKey: settings.ai.apiKey });
+            const modelName = `googleai/${settings.ai.model}`;
+
+            const ai = genkit({
+                plugins: [googleAIPlugin],
+                model: modelName as any,
+            });
+
+            const aiResult = await automateWhatsAppChat({
+                message: contentForAi,
+                conversationHistory: "No history available.", // To-do: Implement history retrieval
+                clientData: fullTrainingData,
+            });
+
+            if (aiResult.response) {
+                console.log(`🤖 AI Response generated: "${aiResult.response}"`);
+                await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: aiResult.response } });
+            } else {
+                 console.log(`🤖 AI generated an empty response. Not sending.`);
+            }
+        } else {
+            console.log('🤖 AI is disabled for this user or chat. No response will be sent.');
+        }
+
+        if (['image', 'audio', 'video', 'document', 'sticker'].includes(message.type)) {
+            // The media processing is also handled in the background
+            processMediaInBackground(userId, from, message, messageId).catch(err => {
+                console.error("🔴 Background media processing failed:", err);
+            });
+        }
+
+    } catch (error) {
+        console.error(`🔴 UNEXPECTED ERROR processing message from ${from}:`, error);
+    }
+}
+
 
 /**
- * Handles webhook verification from Meta. This confirms that we own the endpoint.
+ * Handles webhook verification from Meta.
  */
 export async function GET(req: NextRequest, { params }: { params: { userId:string } }) {
   const { userId } = params;
@@ -31,7 +111,6 @@ export async function GET(req: NextRequest, { params }: { params: { userId:strin
 
     if (token === storedToken) {
       console.log(`✅ Verification SUCCESS: Tokens match.`);
-      // Mark the user's WhatsApp setup as verified in the database
       const userSettingsRef = db.collection('userSettings').doc(userId);
       await userSettingsRef.set({ whatsapp: { status: 'verified' } }, { merge: true });
       return new NextResponse(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
@@ -65,25 +144,18 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
 
         const value = body.entry?.[0]?.changes?.[0]?.value;
 
-        if (!value) {
-            console.log("Discarding: 'value' object is missing from payload.");
-            return NextResponse.json({ status: 'no value object' }, { status: 200 });
+        if (!value || !value.messages) {
+            console.log("Discarding: Event is not a message or 'value' object is missing.");
+            return NextResponse.json({ status: 'event is not a message or no value object' }, { status: 200 });
         }
         
-        if (!value.messages) {
-             console.log("Discarding: Event is not a message (e.g., status update, read receipt).");
-             return NextResponse.json({ status: 'event is not a message' }, { status: 200 });
-        }
-
         const message = value.messages[0];
         const contact = value.contacts?.[0];
         
-        // This is a fire-and-forget call. We don't await it so we can return a 200 OK response to Meta immediately.
-        processMessageAsync(userId, message, contact).catch(err => {
-            console.error("🔴 Error in async message processing:", err);
-        });
+        // Schedule the AI processing to run in the background
+        processMessageInBackground(userId, message, contact);
 
-        // Return a 200 OK response immediately as required by Meta.
+        // Return a 200 OK response immediately to Meta
         return NextResponse.json({ status: 'ok' }, { status: 200 });
 
     } catch (error) {
@@ -95,7 +167,6 @@ export async function POST(req: NextRequest, { params }: { params: { userId: str
 
 /**
  * Stores the incoming message and triggers media processing if needed.
- * Returns the necessary info for the AI.
  */
 async function storeAndProcessMessage(userId: string, conversationId: string, message: any, profileName?: string): Promise<{ messageId: string, contentForAi: string }> {
   const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
@@ -168,116 +239,3 @@ async function storeAndProcessMessage(userId: string, conversationId: string, me
 
   return { messageId: messageRef.id, contentForAi: incomingMessageContent };
 }
-
-
-/**
- * Handles media download and updates the message record in the background.
- */
-async function processMediaInBackground(userId: string, conversationId: string, message: any, messageDocId: string) {
-    const mediaType = message.type;
-    const mediaId = message[mediaType].id;
-    
-    try {
-        const { accessToken } = await getWhatsAppCredentials(userId, ['accessToken']);
-        const { dataUri, mimeType } = await downloadMediaAsDataUri(mediaId, accessToken);
-        
-        const messageRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages').doc(messageDocId);
-        
-        await messageRef.update({
-            mediaUrl: dataUri,
-            mimeType: mimeType,
-            status: 'processed'
-        });
-
-        console.log(`✅ Media processed and updated for message ${messageDocId}.`);
-    } catch (error) {
-        console.error(`🔴 FAILED to process media for message ${messageDocId}:`, error);
-        const messageRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages').doc(messageDocId);
-        await messageRef.update({ status: 'failed_processing' });
-    }
-}
-
-/**
- * The main asynchronous function to process an incoming WhatsApp message.
- */
-async function processMessageAsync(userId: string, message: any, contact: any) {
-    const from = message.from;
-    const profileName = contact?.profile?.name;
-    
-    try {
-        const { messageId, contentForAi } = await storeAndProcessMessage(userId, from, message, profileName);
-        
-        const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
-        if (!userSettingsDoc.exists) {
-            console.log("🤖 User settings not found. Cannot check for AI status.");
-            return;
-        }
-        const settings = userSettingsDoc.data() || {};
-        
-        const isGlobalAiEnabled = settings.ai?.status === 'verified';
-        const conversationDoc = await db.collection('userSettings').doc(userId).collection('conversations').doc(from).get();
-        const isChatAiEnabled = conversationDoc.exists && conversationDoc.data()?.isAiEnabled !== false;
-
-        if (isGlobalAiEnabled && isChatAiEnabled) {
-            console.log('🤖 AI is enabled for this chat. Generating response...');
-            
-            // This is the CRITICAL part: we must have the API key and model here.
-            if (!settings.ai.apiKey || !settings.ai.model) {
-                console.error("🔴 AI settings (apiKey or model) are missing from the user's profile. Cannot generate response.");
-                return;
-            }
-
-            const trainingContext = settings.trainingData || {};
-            const clientData = trainingContext.clientData || "";
-            const trainingInstructions = trainingContext.trainingInstructions || "";
-            const chatFlow = trainingContext.chatFlow || "";
-            
-            const fullTrainingData = `
-              TRAINING DATA:
-              ${clientData}
-              
-              INSTRUCTIONS:
-              ${trainingInstructions}
-              
-              CHAT FLOW:
-              ${chatFlow}
-            `.trim();
-
-            const googleAIPlugin = googleAI({ apiKey: settings.ai.apiKey });
-            const modelName = `googleai/${settings.ai.model}`;
-
-            // We must explicitly configure a new `ai` object here with the user's specific key.
-            const ai = genkit({
-                plugins: [googleAIPlugin],
-                model: modelName as any,
-            });
-
-            const aiResult = await automateWhatsAppChat({
-                message: contentForAi,
-                conversationHistory: "No history available.", // To-do: Implement history retrieval
-                clientData: fullTrainingData,
-            });
-
-            if (aiResult.response) {
-                console.log(`🤖 AI Response generated: "${aiResult.response}"`);
-                await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: aiResult.response } });
-            } else {
-                 console.log(`🤖 AI generated an empty response. Not sending.`);
-            }
-        } else {
-            console.log('🤖 AI is disabled for this user or chat. No response will be sent.');
-        }
-
-        // Handle media in the background AFTER the main logic (including AI response) is done.
-        if (['image', 'audio', 'video', 'document', 'sticker'].includes(message.type)) {
-            processMediaInBackground(userId, from, message, messageId).catch(err => {
-                console.error("🔴 Background media processing failed:", err);
-            });
-        }
-
-    } catch (error) {
-        console.error(`🔴 UNEXPECTED ERROR processing message from ${from}:`, error);
-    }
-}
-
-    
