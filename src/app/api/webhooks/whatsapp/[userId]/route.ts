@@ -216,10 +216,16 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
         
         // --- STEP 3: Check for AI and generate a response ---
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
-        if (userSettingsDoc.exists && userSettingsDoc.data()?.ai?.status === 'verified') {
+        const settings = userSettingsDoc.data();
+        
+        const isAiEnabled = settings?.ai?.status === 'verified';
+        
+        if (isAiEnabled) {
             console.log('🤖 AI is enabled. Generating response...');
+            
             const conversationHistory = await getConversationHistory(userId, from);
-            const clientData = userSettingsDoc.data()?.trainingData?.clientData || '';
+            // Safely get clientData, defaulting to an empty string if not present
+            const clientData = settings?.trainingData?.clientData || '';
 
             const aiResult = await automateWhatsAppChat({
                 message: contentForAi,
@@ -270,3 +276,5 @@ async function getConversationHistory(userId: string, conversationId: string): P
         return `${sender}: ${content}`;
     }).join('\n');
 }
+
+    
