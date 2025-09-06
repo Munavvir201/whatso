@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { Bot, Pencil, Send, User, Paperclip, Mic } from "lucide-react"
+import { Bot, Pencil, Send, User, Paperclip, Mic, MoreVertical } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Skeleton } from './ui/skeleton';
 import { db } from '@/lib/firebase';
@@ -98,7 +98,7 @@ const MessageContent = ({ message }: { message: Message }) => {
     switch (message.type) {
         case 'image':
             return (
-                <div className="p-2">
+                <div className="p-1">
                     {message.mediaUrl && (
                         <Image src={message.mediaUrl} alt={message.caption || 'Image'} width={300} height={300} className="rounded-md" />
                     )}
@@ -119,9 +119,9 @@ const MessageContent = ({ message }: { message: Message }) => {
             );
         case 'document':
              return (
-                <div className="flex items-center gap-3 bg-gray-200 dark:bg-gray-700 p-3 rounded-lg">
-                    <Paperclip className="h-6 w-6 text-gray-600 dark:text-gray-300" />
-                    <a href={message.mediaUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                <div className="flex items-center gap-3 p-3 rounded-lg">
+                    <Paperclip className="h-6 w-6" />
+                    <a href={message.mediaUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
                         {message.content || 'Download Document'}
                     </a>
                 </div>
@@ -212,44 +212,46 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
 
   if (!activeChat) {
     return (
-        <div className="flex flex-col h-full items-center justify-center bg-background text-muted-foreground">
-            <Bot size={48} />
+        <div className="flex flex-col h-full items-center justify-center bg-muted/40 text-muted-foreground">
+            <MessageSquare size={48} />
             <p className="mt-4 text-lg">Select a conversation to start chatting</p>
         </div>
     )
   }
 
   return (
-    <div className="flex flex-col h-full bg-background">
-      <div className="flex items-center justify-between border-b p-4 flex-shrink-0">
+    <div className="flex flex-col h-full bg-muted/40">
+      <div className="flex items-center justify-between border-b p-3 flex-shrink-0 bg-background">
         <div className="flex items-center gap-3">
           <Avatar className="h-10 w-10 border">
             <AvatarImage src={activeChat.avatar} alt={activeChat.name} data-ai-hint={activeChat.ai_hint}/>
             <AvatarFallback>{activeChat.name.charAt(0)}</AvatarFallback>
           </Avatar>
           <div>
-            <div className='flex items-center gap-2'>
+            <div className='flex items-center gap-1'>
                 <h3 className="font-semibold text-lg">{activeChat.name}</h3>
                 <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleEditName}>
-                    <Pencil className='h-4 w-4 text-muted-foreground'/>
+                    <Pencil className='h-3 w-3 text-muted-foreground'/>
                 </Button>
             </div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span className={cn("h-2 w-2 rounded-full", activeChat.active ? "bg-green-500" : "bg-gray-400")}></span>
-              {activeChat.number}
-            </div>
+            <p className="text-sm text-muted-foreground">{activeChat.number}</p>
           </div>
         </div>
         <div className="flex items-center space-x-2">
-          <Switch id="ai-mode" />
-          <Label htmlFor="ai-mode" className="flex items-center gap-2 text-muted-foreground">
-            <Bot className="h-5 w-5" />
-            <span className="font-medium">AI Mode</span>
-          </Label>
+          <div className="flex items-center space-x-2">
+            <Switch id="ai-mode" />
+            <Label htmlFor="ai-mode" className="flex items-center gap-2 text-muted-foreground">
+                <Bot className="h-5 w-5" />
+                <span className="font-medium">AI Agent</span>
+            </Label>
+          </div>
+          <Button variant="ghost" size="icon">
+              <MoreVertical className="h-5 w-5 text-muted-foreground" />
+          </Button>
         </div>
       </div>
       <ScrollArea className="flex-1 p-0 overflow-y-auto" ref={scrollAreaRef}>
-          <div className="p-6">
+          <div className="p-4 md:p-6">
             {isLoading ? (
                 <div className="space-y-4">
                     <Skeleton className="h-16 w-3/4 ml-auto rounded-lg" />
@@ -258,19 +260,27 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
                     <Skeleton className="h-24 w-4/5 rounded-lg" />
                 </div>
             ) : (
-                <div className="space-y-6">
+                <div className="space-y-2">
                     {messages.map((message) => (
                         <div
                             key={message.id}
                             className={cn(
-                                "flex w-max max-w-[75%] flex-col gap-2 rounded-lg px-4 py-3 text-sm",
-                                message.sender === 'agent' ? "ml-auto bg-primary text-primary-foreground" : "bg-muted"
+                                "flex w-full",
+                                message.sender === 'agent' ? "justify-end" : "justify-start"
                             )}
                         >
-                            <MessageContent message={message} />
-                            <span className={cn("text-xs self-end", message.sender === 'agent' ? 'text-primary-foreground/70' : 'text-muted-foreground')}>
-                               {formatTimestamp(message.timestamp)}
-                            </span>
+                            <div className={cn(
+                                "max-w-[75%] flex-col gap-2 rounded-lg px-3 py-2 text-sm",
+                                message.sender === 'agent' ? "bg-chat-outgoing text-chat-outgoing-foreground" : "bg-chat-incoming text-chat-incoming-foreground"
+                            )}>
+                                <MessageContent message={message} />
+                                <span className={cn(
+                                  "text-xs float-right mt-1",
+                                  message.sender === 'agent' ? 'text-chat-outgoing-foreground/70' : 'text-muted-foreground/80'
+                                  )}>
+                                   {formatTimestamp(message.timestamp)}
+                                </span>
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -285,7 +295,7 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
             </Button>
             <Textarea
                 placeholder="Type your message here... (Shift+Enter for new line)"
-                className="flex-1 min-h-[40px] max-h-32 resize-none"
+                className="flex-1 min-h-[40px] max-h-32 resize-none bg-muted/40 border-muted-foreground/20 focus-visible:ring-1"
                 value={newMessage}
                 disabled={isSending}
                 onChange={(e) => setNewMessage(e.target.value)}
@@ -297,8 +307,8 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
                 }}
             />
             {newMessage ? (
-                <Button type="submit" size="icon" className="flex-shrink-0 bg-accent hover:bg-accent/90" disabled={isSending}>
-                    <Send className="h-4 w-4 text-accent-foreground" />
+                <Button type="submit" size="icon" className="flex-shrink-0 bg-primary hover:bg-primary/90" disabled={isSending}>
+                    <Send className="h-4 w-4 text-primary-foreground" />
                     <span className="sr-only">Send</span>
                 </Button>
             ) : (

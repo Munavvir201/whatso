@@ -42,6 +42,7 @@ export default function ChatPage() {
         setActiveChat({ 
             id: docSnap.id, 
             name: data.customerName || `Customer ${docSnap.id.slice(-4)}`,
+            number: data.customerNumber || docSnap.id,
             avatar: `https://picsum.photos/seed/${docSnap.id}/40/40`,
             message: data.lastMessage || '',
             time: data.lastUpdated?.toDate().toLocaleTimeString() || '',
@@ -58,7 +59,7 @@ export default function ChatPage() {
 
   return (
     <div className="h-full">
-      <Card className="h-full w-full grid grid-cols-1 md:grid-cols-[300px_1fr] lg:grid-cols-[350px_1fr] overflow-hidden">
+      <Card className="h-full w-full grid grid-cols-1 md:grid-cols-[320px_1fr] lg:grid-cols-[380px_1fr] overflow-hidden">
         <ChatList activeChatId={activeChatId} setActiveChatId={setActiveChatId} />
         <ChatView activeChat={activeChat} />
       </Card>

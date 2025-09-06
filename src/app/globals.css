@@ -36,6 +36,11 @@
 
     --chart-1: 204 88% 51%;
     --chart-2: 260 88% 61%;
+
+    --chat-incoming: 220 13% 91%;
+    --chat-incoming-foreground: 224 71.4% 4.1%;
+    --chat-outgoing: 210 93% 83%;
+    --chat-outgoing-foreground: 224 71.4% 4.1%;
   }
 
   .dark {
@@ -70,6 +75,11 @@
 
     --chart-1: 204 88% 51%;
     --chart-2: 260 88% 61%;
+
+    --chat-incoming: 220 20% 10%;
+    --chat-incoming-foreground: 0 0% 98%;
+    --chat-outgoing: 204 80% 25%;
+    --chat-outgoing-foreground: 0 0% 98%;
   }
 }
 

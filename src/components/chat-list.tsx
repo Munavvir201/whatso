@@ -63,18 +63,18 @@ export function ChatList({ activeChatId, setActiveChatId }: { activeChatId: stri
   const { chats, isLoading } = useChatList(user?.uid || null);
   
   return (
-    <div className="border-r bg-card flex flex-col">
+    <div className="border-r bg-muted/20 flex flex-col">
       <div className="p-4 border-b">
         <h2 className="text-xl font-headline font-semibold">Conversations</h2>
         <div className="relative mt-4">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search conversations..." className="pl-10" />
+          <Input placeholder="Search conversations..." className="pl-10 bg-background" />
         </div>
       </div>
       <ScrollArea className="flex-1">
-        <div className="p-2">
+        <div className="p-2 space-y-1">
           {isLoading ? (
-            <div className="space-y-2">
+            <div className="space-y-2 p-2">
               {[...Array(7)].map((_, i) => (
                 <div key={i} className="flex items-center gap-3 p-3">
                   <Skeleton className="h-10 w-10 rounded-full" />
@@ -92,7 +92,7 @@ export function ChatList({ activeChatId, setActiveChatId }: { activeChatId: stri
                 onClick={() => setActiveChatId(chat.id)}
                 className={cn(
                   "w-full text-left p-3 rounded-lg flex items-start gap-3 transition-colors",
-                  chat.id === activeChatId ? "bg-primary/10" : "hover:bg-muted"
+                  chat.id === activeChatId ? "bg-primary/10" : "hover:bg-muted/50"
                 )}
               >
                 <Avatar className="h-10 w-10 border">
