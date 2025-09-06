@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db, FieldValue } from '@/lib/firebase-admin';
 import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
 import { getWhatsAppCredentials, downloadMediaAsDataUri, sendWhatsAppMessage } from '@/lib/whatsapp';
+import { genkit } from 'genkit';
+import { googleAI } from '@genkit-ai/googleai';
 
 /**
  * Handles webhook verification from Meta. This confirms that we own the endpoint.
@@ -250,6 +252,11 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
               ${chatFlow}
             `.trim();
 
+            const ai = genkit({
+                plugins: [googleAI({ apiKey: settings.ai.apiKey })],
+                model: 'googleai/gemini-1.5-flash',
+            });
+
             const aiResult = await automateWhatsAppChat({
                 message: contentForAi,
                 conversationHistory: "No history available.",
@@ -270,5 +277,3 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
         console.error(`🔴 UNEXPECTED ERROR processing message from ${from}:`, error);
     }
 }
-    
-    
