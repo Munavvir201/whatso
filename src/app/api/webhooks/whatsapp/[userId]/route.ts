@@ -206,14 +206,14 @@ async function processMessageAsync(userId: string, message: any) {
             mediaInfo = { type: mediaType, id: message[mediaType].id };
             if (message[mediaType].caption) {
                 messageToStore.caption = message[mediaType].caption;
-                incomingMessageContent += ` with caption: ${message[mediaType].caption}`;
+                incomingMessageContent += `Caption: ${message[mediaType].caption}`;
             }
              if (mediaType === 'document' && message.document.filename) {
                 messageToStore.content = message.document.filename;
                 incomingMessageContent = `[Document: ${message.document.filename}]`
             } else {
-                messageToStore.content = `[${mediaType} received]`;
-                incomingMessageContent = `[${mediaType} received]`;
+                messageToStore.content = `[${mediaType}]`;
+                incomingMessageContent = `[${mediaType}]`;
             }
             break;
         default:
@@ -222,23 +222,26 @@ async function processMessageAsync(userId: string, message: any) {
     }
     
     try {
-        // Store the text/placeholder part of the message first for responsiveness
+        // Step 1: Store the incoming message immediately for real-time feel.
+        // This also creates the conversation if it doesn't exist.
         const messageRef = await storeMessage(userId, conversationId, messageToStore, true);
-        console.log(`✅ Stored placeholder for message from ${from}. Now processing media/AI...`);
+        console.log(`✅ Stored placeholder for message from ${from}. Now processing...`);
         
-        // If there's media, download it and update the message document
+        // Step 2: If there's media, download it and update the message document in the background.
         if (mediaInfo) {
-            try {
-                const { dataUri, mimeType } = await downloadMediaAsDataUri(mediaInfo.id, accessToken);
-                const mediaUpdate: any = { mediaUrl: dataUri, mimeType: mimeType };
-                await messageRef.update(mediaUpdate);
-                console.log(`✅ Media downloaded and message ${messageRef.id} updated.`);
-            } catch (error) {
-                console.error(`🔴 FAILED to download ${mediaInfo.type} with ID ${mediaInfo.id}:`, error);
-                await messageRef.update({ content: `[Failed to download ${mediaInfo.type}]` });
-            }
+            downloadMediaAsDataUri(mediaInfo.id, accessToken)
+                .then(({ dataUri, mimeType }) => {
+                    const mediaUpdate: any = { mediaUrl: dataUri, mimeType: mimeType };
+                    messageRef.update(mediaUpdate);
+                    console.log(`✅ Media downloaded and message ${messageRef.id} updated.`);
+                })
+                .catch(error => {
+                    console.error(`🔴 FAILED to download ${mediaInfo.type} with ID ${mediaInfo.id}:`, error);
+                    messageRef.update({ content: `[Failed to download ${mediaInfo.type}]` });
+                });
         }
         
+        // Step 3: Fetch context and generate AI response.
         const conversationHistory = await getConversationHistory(userId, conversationId);
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
         const clientData = userSettingsDoc.data()?.trainingData?.clientData || '';
@@ -251,6 +254,8 @@ async function processMessageAsync(userId: string, message: any) {
 
         console.log(`🤖 AI Response generated: "${aiResult.response}"`);
 
+        // Step 4: Send the AI's response back to the user.
+        // The `sendWhatsAppMessage` function will also store the agent's message.
         await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: aiResult.response } });
 
     } catch (error) {
@@ -264,27 +269,36 @@ async function processMessageAsync(userId: string, message: any) {
  */
 async function storeMessage(userId: string, conversationId: string, messageData: any, isIncoming: boolean = false): Promise<admin.firestore.DocumentReference> {
     const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
+    const messagesColRef = conversationRef.collection('messages');
     
     const batch = db.batch();
 
+    // Data for the conversation document
     const conversationUpdate: any = {
-        lastUpdated: messageData.timestamp,
+        lastUpdated: FieldValue.serverTimestamp(),
         lastMessage: messageData.caption || messageData.content || `[${messageData.type}]`,
-        customerName: 'Customer ' + conversationId.slice(-4),
         customerNumber: conversationId,
     };
+    
+    // Set customer name only if it doesn't exist
+    const conversationDoc = await conversationRef.get();
+    if (!conversationDoc.exists()) {
+        conversationUpdate.customerName = `Customer ${conversationId.slice(-4)}`;
+    }
     
     if (isIncoming) {
         conversationUpdate.unreadCount = FieldValue.increment(1);
     }
 
+    // Set conversation data (create or merge)
     batch.set(conversationRef, conversationUpdate, { merge: true });
 
-    const messagesRef = conversationRef.collection('messages').doc();
-    batch.set(messagesRef, messageData);
+    // Create the new message document
+    const newMessageRef = messagesColRef.doc();
+    batch.set(newMessageRef, messageData);
 
     await batch.commit();
-    return messagesRef; // Return the reference to the newly created message document
+    return newMessageRef;
 }
 
 
@@ -306,5 +320,3 @@ async function getConversationHistory(userId: string, conversationId: string): P
         return `${sender}: ${content}`;
     }).join('\n');
 }
-
-    

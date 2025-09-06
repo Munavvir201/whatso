@@ -207,7 +207,12 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
     useEffect(() => {
         if (activeChat && user) {
             const conversationRef = doc(db, "userSettings", user.uid, "conversations", activeChat.id);
-            setDoc(conversationRef, { unreadCount: 0 }, { merge: true });
+            // Reset unread count when chat is opened
+            getDoc(conversationRef).then(docSnap => {
+                if (docSnap.exists() && docSnap.data().unreadCount > 0) {
+                    setDoc(conversationRef, { unreadCount: 0 }, { merge: true });
+                }
+            });
         }
     }, [activeChat, user]);
     
@@ -420,6 +425,10 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
     
     const cancelRecording = () => {
         if (mediaRecorderRef.current?.state === 'recording') {
+            // A new onstop handler is set to just discard the data
+            mediaRecorderRef.current.onstop = () => {
+                mediaRecorderRef.current?.stream.getTracks().forEach(track => track.stop());
+            };
             mediaRecorderRef.current.stop();
         }
         setIsRecording(false);
