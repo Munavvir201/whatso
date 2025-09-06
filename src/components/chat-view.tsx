@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils"
 import { Skeleton } from './ui/skeleton';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
-import { collection, onSnapshot, query, orderBy, Timestamp, addDoc, doc, getDoc, setDoc, FieldValue } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, Timestamp, addDoc, doc, getDoc, setDoc, FieldValue, writeBatch } from 'firebase/firestore';
 import type { Message, Chat } from '@/types/chat';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
@@ -61,7 +61,7 @@ const formatTimestamp = (timestamp: Timestamp | Date | null) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-async function sendWhatsAppMediaMessage(userId: string, to: string, dataUri: string, mimeType: string, type: Message['type'], caption?: string) {
+async function sendWhatsAppMediaMessage(userId: string, to: string, dataUri: string, mimeType: string, type: Message['type'], fileName?: string, caption?: string) {
     const userSettingsRef = doc(db, "userSettings", userId);
     const docSnap = await getDoc(userSettingsRef);
     if (!docSnap.exists() || !docSnap.data()?.whatsapp) throw new Error("WhatsApp credentials not configured.");
@@ -70,7 +70,7 @@ async function sendWhatsAppMediaMessage(userId: string, to: string, dataUri: str
 
     const formData = new FormData();
     const blob = await (await fetch(dataUri)).blob();
-    formData.append('file', blob, `file.${mimeType.split('/')[1]}`);
+    formData.append('file', blob, fileName || `file.${mimeType.split('/')[1]}`);
     formData.append('type', mimeType);
     formData.append('messaging_product', 'whatsapp');
 
@@ -79,7 +79,12 @@ async function sendWhatsAppMediaMessage(userId: string, to: string, dataUri: str
         headers: { 'Authorization': `Bearer ${accessToken}` },
         body: formData,
     });
-    if (!uploadResponse.ok) throw new Error(`Failed to upload media: ${await uploadResponse.text()}`);
+
+    if (!uploadResponse.ok) {
+        const errorText = await uploadResponse.text();
+        console.error("WhatsApp media upload failed:", errorText);
+        throw new Error(`Failed to upload media: ${errorText}`);
+    }
     const { id: mediaId } = await uploadResponse.json();
 
     const messagePayload: any = {
@@ -88,17 +93,26 @@ async function sendWhatsAppMediaMessage(userId: string, to: string, dataUri: str
         type: type,
         [type]: { id: mediaId },
     };
-
-    if (type === 'image' && caption) {
-        messagePayload.image.caption = caption;
+    
+    // Add caption for image, video, document
+    if (caption && (type === 'image' || type === 'video' || type === 'document')) {
+        messagePayload[type].caption = caption;
     }
+    if (type === 'document' && fileName) {
+        messagePayload[type].filename = fileName;
+    }
+
 
     const sendResponse = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(messagePayload),
     });
-    if (!sendResponse.ok) throw new Error(`Failed to send media message: ${await sendResponse.text()}`);
+    if (!sendResponse.ok) {
+        const errorText = await sendResponse.text();
+        console.error("WhatsApp message send failed:", errorText);
+        throw new Error(`Failed to send media message: ${errorText}`);
+    }
     return await sendResponse.json();
 }
 
@@ -147,14 +161,14 @@ const MessageContent = ({ message }: { message: Message }) => {
             return (
                 <div className="p-1">
                     {message.mediaUrl && (
-                        <Image src={message.mediaUrl} alt={message.caption || 'Image'} width={300} height={300} className="rounded-md" />
+                        <Image src={message.mediaUrl} alt={message.caption || 'Image'} width={300} height={300} className="rounded-md object-cover" />
                     )}
                     {message.caption && <p className="text-sm mt-2">{message.caption}</p>}
                 </div>
             );
         case 'audio':
             return (
-                <audio controls src={message.mediaUrl} className="w-full">
+                <audio controls src={message.mediaUrl} className="w-full max-w-xs">
                     Your browser does not support the audio element.
                 </audio>
             );
@@ -166,9 +180,9 @@ const MessageContent = ({ message }: { message: Message }) => {
             );
         case 'document':
              return (
-                <div className="flex items-center gap-3 p-3 rounded-lg">
-                    <Paperclip className="h-6 w-6" />
-                    <a href={message.mediaUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                <div className="flex items-center gap-3 p-2 rounded-lg bg-black/5">
+                    <Paperclip className="h-6 w-6 flex-shrink-0" />
+                    <a href={message.mediaUrl} target="_blank" rel="noopener noreferrer" className="hover:underline truncate">
                         {message.content || 'Download Document'}
                     </a>
                 </div>
@@ -177,7 +191,7 @@ const MessageContent = ({ message }: { message: Message }) => {
              return message.mediaUrl ? <Image src={message.mediaUrl} alt="Sticker" width={128} height={128} /> : <span>[Sticker]</span>
         case 'text':
         default:
-            return <p className='leading-snug'>{message.content}</p>;
+            return <p className='leading-snug whitespace-pre-wrap'>{message.content}</p>;
     }
 };
 
@@ -213,21 +227,20 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         }
     };
     
-    const storeAndSetMessage = async (messageData: Omit<Message, 'id' | 'timestamp'>) => {
+    const storeMessageInDb = async (messageData: Omit<Message, 'id' | 'timestamp'> & { timestamp: FieldValue, whatsappMessageId: string }) => {
         if (!user || !activeChat) return;
 
+        const batch = writeBatch(db);
         const conversationRef = doc(db, "userSettings", user.uid, "conversations", activeChat.id);
-        const messagesRef = collection(conversationRef, "messages");
-        
-        await addDoc(messagesRef, {
-            ...messageData,
-            timestamp: Timestamp.now(),
-        });
-        
-        await setDoc(conversationRef, {
+        const messagesRef = doc(collection(conversationRef, "messages"));
+
+        batch.set(messagesRef, messageData);
+        batch.update(conversationRef, {
             lastMessage: messageData.caption || messageData.content || `[${messageData.type}]`,
-            lastUpdated: Timestamp.now() as FieldValue,
-        }, { merge: true });
+            lastUpdated: messageData.timestamp,
+        });
+
+        await batch.commit();
     };
 
     const handleSendTextMessage = async (e: React.FormEvent) => {
@@ -235,16 +248,17 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         if (!newMessage.trim() || !activeChat || !user) return;
         
         setIsSending(true);
-
         const messageContent = newMessage;
         setNewMessage("");
 
         try {
-            await sendWhatsAppTextMessage(user.uid, activeChat.id, messageContent);
-            await storeAndSetMessage({
+            const response = await sendWhatsAppTextMessage(user.uid, activeChat.id, messageContent);
+            await storeMessageInDb({
                 sender: 'agent',
                 content: messageContent,
-                type: 'text'
+                type: 'text',
+                timestamp: Timestamp.now(),
+                whatsappMessageId: response.messages[0].id
             });
 
         } catch (error: any) {
@@ -277,14 +291,16 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
             else if (file.type.startsWith('video/')) type = 'video';
             else if (file.type.startsWith('audio/')) type = 'audio';
 
-            await sendWhatsAppMediaMessage(user.uid, activeChat.id, dataUri, file.type, type);
+            const response = await sendWhatsAppMediaMessage(user.uid, activeChat.id, dataUri, file.type, type, file.name);
             
-            await storeAndSetMessage({
+            await storeMessageInDb({
                 sender: 'agent',
                 content: file.name,
                 type: type,
                 mediaUrl: dataUri,
                 mimeType: file.type,
+                timestamp: Timestamp.now(),
+                whatsappMessageId: response.messages[0].id,
             });
 
         } catch (error: any) {
@@ -298,7 +314,7 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
     const handleMicClick = async () => {
         if (isRecording) {
             mediaRecorderRef.current?.stop();
-            setIsRecording(false);
+            // The onstop event will handle the rest
             return;
         }
 
@@ -311,6 +327,7 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
             const chunks: BlobPart[] = [];
             mediaRecorderRef.current.ondataavailable = (e) => chunks.push(e.data);
             mediaRecorderRef.current.onstop = async () => {
+                setIsRecording(false);
                 const blob = new Blob(chunks, { type: 'audio/ogg; codecs=opus' });
                 const dataUri = await new Promise<string>(resolve => {
                     const reader = new FileReader();
@@ -321,13 +338,15 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                 if (!user || !activeChat) return;
                 setIsSending(true);
                 try {
-                    await sendWhatsAppMediaMessage(user.uid, activeChat.id, dataUri, blob.type, 'audio');
-                    await storeAndSetMessage({ sender: 'agent', type: 'audio', mediaUrl: dataUri, mimeType: blob.type, content: 'Voice message' });
+                    const response = await sendWhatsAppMediaMessage(user.uid, activeChat.id, dataUri, blob.type, 'audio');
+                    await storeMessageInDb({ sender: 'agent', type: 'audio', mediaUrl: dataUri, mimeType: blob.type, content: 'Voice message', timestamp: Timestamp.now(), whatsappMessageId: response.messages[0].id });
                 } catch(e: any) {
                      toast({ variant: "destructive", title: "Failed to send voice message", description: e.message });
                 } finally {
                     setIsSending(false);
                 }
+                 // Clean up the stream
+                stream.getTracks().forEach(track => track.stop());
             };
             mediaRecorderRef.current.start();
             setIsRecording(true);
@@ -451,7 +470,7 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                 </Button>
             ) : (
                 <Button type="button" variant="destructive" size="icon" className="flex-shrink-0 text-white bg-red-600 hover:bg-red-700" onClick={handleMicClick} disabled={isSending}>
-                    {isRecording ? <Circle className="h-5 w-5 text-white fill-white" /> : <Mic className="h-5 w-5" />}
+                    {isRecording ? <Circle className="h-5 w-5 text-white fill-white animate-pulse" /> : <Mic className="h-5 w-5" />}
                     <span className="sr-only">Record voice message</span>
                 </Button>
             )}
@@ -461,3 +480,5 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
     </div>
   )
 }
+
+    
