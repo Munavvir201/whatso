@@ -192,7 +192,7 @@ async function storeMessage(userId: string, conversationId: string, messageData:
     };
     
     // Only set the name if the conversation is new
-    if (!conversationDoc.exists()) {
+    if (!conversationDoc.exists) {
         conversationUpdate.customerName = `Customer ${conversationId.slice(-4)}`; // Default name
         conversationUpdate.unreadCount = 1;
     } else {
