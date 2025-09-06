@@ -220,10 +220,9 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
             console.log("🤖 User settings not found. Cannot check for AI status.");
             return;
         }
-        const settings = userSettingsDoc.data();
+        const settings = userSettingsDoc.data() || {};
         
-        const isGlobalAiEnabled = settings?.ai?.status === 'verified';
-        
+        const isGlobalAiEnabled = settings.ai?.status === 'verified';
         if (!isGlobalAiEnabled) {
              console.log('🤖 Global AI is disabled for this user. No response will be sent.');
              return;
@@ -235,9 +234,11 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
         if (isChatAiEnabled) {
             console.log('🤖 AI is enabled for this chat. Generating response...');
             
+            // Wait a moment to ensure Firestore is consistent, then fetch history
+            await new Promise(resolve => setTimeout(resolve, 1000));
             const conversationHistory = await getConversationHistory(userId, from);
             
-            const trainingContext = settings?.trainingData || {};
+            const trainingContext = settings.trainingData || {};
             const clientData = trainingContext.clientData || "";
             const trainingInstructions = trainingContext.trainingInstructions || "";
             const chatFlow = trainingContext.chatFlow || "";
@@ -306,3 +307,5 @@ async function getConversationHistory(userId: string, conversationId: string): P
         return `${sender}: ${content}`;
     }).join('\n');
 }
+
+    
