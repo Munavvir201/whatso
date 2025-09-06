@@ -25,7 +25,7 @@ const setupStepsConfig = [
         icon: Bot,
         title: "Configure Your AI",
         description: "Add your AI provider API key to bring your chatbot to life.",
-        href: "/settings",
+        href: "/settings/ai",
         cta: "Configure",
         completedCta: "Configured",
 
@@ -61,6 +61,9 @@ export function SetupSteps() {
             const status: Record<string, boolean> = {};
             if (data?.whatsapp?.status === 'verified') {
                 status.whatsapp = true;
+            }
+             if (data?.ai?.status === 'verified') {
+                status.ai = true;
             }
             // TODO: Add checks for other setup steps once implemented
 
