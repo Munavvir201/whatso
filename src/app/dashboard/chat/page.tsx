@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { ChatList } from '@/components/chat-list';
 import { ChatView } from '@/components/chat-view';
 import { Card } from '@/components/ui/card';
-import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, limit, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
 import type { Chat } from '@/types/chat';
