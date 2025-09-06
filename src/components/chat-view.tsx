@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useEffect, useState, useRef } from 'react';
@@ -7,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { Bot, Pencil, Send, User, Paperclip, Mic, MoreVertical, MessageSquare } from "lucide-react"
+import { Bot, Pencil, Send, User, Paperclip, Mic, MoreVertical, MessageSquare, ChevronLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Skeleton } from './ui/skeleton';
 import { db } from '@/lib/firebase';
@@ -16,6 +17,11 @@ import { collection, onSnapshot, query, orderBy, Timestamp, addDoc, doc, getDoc,
 import type { Message, Chat } from '@/types/chat';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
+
+interface ChatViewProps {
+  activeChat: Chat | null;
+  onBack?: () => void;
+}
 
 const useChatMessages = (userId: string | null, chatId: string | null) => {
     const [messages, setMessages] = useState<Message[]>([]);
@@ -133,7 +139,7 @@ const MessageContent = ({ message }: { message: Message }) => {
     }
 };
 
-export function ChatView({ activeChat }: { activeChat: Chat | null }) {
+export function ChatView({ activeChat, onBack }: ChatViewProps) {
     const { user } = useAuth();
     const { messages, isLoading } = useChatMessages(user?.uid || null, activeChat?.id || null);
     const [newMessage, setNewMessage] = useState("");
@@ -211,7 +217,7 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
 
   if (!activeChat) {
     return (
-        <div className="flex flex-col h-full items-center justify-center bg-muted/40 text-muted-foreground">
+        <div className="hidden md:flex flex-col h-full items-center justify-center bg-muted/40 text-muted-foreground">
             <MessageSquare size={48} />
             <p className="mt-4 text-lg">Select a conversation to start chatting</p>
         </div>
@@ -221,7 +227,12 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
   return (
     <div className="flex flex-col h-full bg-muted/40">
       <div className="flex items-center justify-between border-b p-3 flex-shrink-0 bg-background">
-        <div className="flex items-center gap-3">
+         <div className="flex items-center gap-3">
+           {onBack && (
+            <Button variant="ghost" size="icon" onClick={onBack} className="md:hidden">
+              <ChevronLeft className="h-6 w-6" />
+            </Button>
+           )}
           <Avatar className="h-10 w-10 border">
             <AvatarImage src={activeChat.avatar} alt={activeChat.name} data-ai-hint={activeChat.ai_hint}/>
             <AvatarFallback>{activeChat.name.charAt(0)}</AvatarFallback>
@@ -241,7 +252,7 @@ export function ChatView({ activeChat }: { activeChat: Chat | null }) {
             <Switch id="ai-mode" />
             <Label htmlFor="ai-mode" className="flex items-center gap-2 text-muted-foreground">
                 <Bot className="h-5 w-5" />
-                <span className="font-medium">AI Agent</span>
+                <span className="font-medium hidden sm:inline">AI Agent</span>
             </Label>
           </div>
           <Button variant="ghost" size="icon">

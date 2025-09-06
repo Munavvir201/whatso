@@ -9,15 +9,19 @@ import { collection, onSnapshot, query, orderBy, doc } from 'firebase/firestore'
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
 import type { Chat } from '@/types/chat';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
+
 
 export default function ChatPage() {
   const { user } = useAuth();
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeChat, setActiveChat] = useState<Chat | null>(null);
+  const isMobile = useIsMobile();
 
-  // Set the first chat as active by default
+  // Set the first chat as active by default on desktop
   useEffect(() => {
-    if (!user) return;
+    if (!user || isMobile) return;
     
     const q = query(collection(db, "userSettings", user.uid, "conversations"), orderBy("lastUpdated", "desc"));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -27,7 +31,7 @@ export default function ChatPage() {
         }
     });
     return () => unsubscribe();
-  }, [user, activeChatId]);
+  }, [user, activeChatId, isMobile]);
 
   // Fetch active chat details when ID changes
   useEffect(() => {
@@ -56,11 +60,24 @@ export default function ChatPage() {
     });
     return () => unsubscribe();
   }, [activeChatId, user]);
+  
+  const handleSelectChat = (id: string) => {
+    setActiveChatId(id);
+  }
+
+  const handleBack = () => {
+    setActiveChatId(null);
+    setActiveChat(null);
+  }
 
   return (
       <Card className="w-full h-full grid grid-cols-1 md:grid-cols-[320px_1fr] lg:grid-cols-[380px_1fr] overflow-hidden">
-        <ChatList activeChatId={activeChatId} setActiveChatId={setActiveChatId} />
-        <ChatView activeChat={activeChat} />
+        <div className={cn("md:flex flex-col", isMobile && activeChatId ? "hidden" : "flex")}>
+          <ChatList activeChatId={activeChatId} setActiveChatId={handleSelectChat} />
+        </div>
+        <div className={cn("md:flex flex-col", isMobile && !activeChatId ? "hidden" : "flex")}>
+           <ChatView activeChat={activeChat} onBack={isMobile ? handleBack : undefined} />
+        </div>
       </Card>
   );
 }

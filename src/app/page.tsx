@@ -1,16 +1,23 @@
+
+'use client'
+
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { MessageSquare, Zap, Rocket, BarChart, CheckCircle, Bot, Twitter, Github, Linkedin, MessageCircle } from 'lucide-react';
+import { MessageSquare, Zap, Rocket, BarChart, CheckCircle, Bot, Twitter, Github, Linkedin, MessageCircle, Menu } from 'lucide-react';
 import Image from 'next/image';
 import WhatsOLogo from '@/components/logo';
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import React from 'react';
 
 export default function LandingPage() {
+  const [isMenuOpen, setIsMenuOpen] = React.useState(false);
+
   return (
     <div className="flex flex-col min-h-dvh bg-background">
       <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-sm">
         <div className="container flex h-16 items-center px-4 md:px-6">
-          <Link href="#" className="flex items-center justify-center" prefetch={false}>
+          <Link href="#" className="flex items-center justify-center mr-auto" prefetch={false}>
             <WhatsOLogo />
           </Link>
           <nav className="ml-auto hidden lg:flex gap-4 sm:gap-6">
@@ -24,7 +31,7 @@ export default function LandingPage() {
                   Pricing
               </Link>
           </nav>
-          <div className="ml-auto lg:ml-4 flex items-center gap-2">
+          <div className="ml-4 hidden lg:flex items-center gap-2">
               <Button variant="ghost" asChild>
                   <Link href="/login">Sign In</Link>
               </Button>
@@ -32,6 +39,42 @@ export default function LandingPage() {
                   <Link href="/signup">Get Started</Link>
               </Button>
           </div>
+          <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+            <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" className="lg:hidden ml-auto">
+                    <Menu className="h-6 w-6" />
+                    <span className="sr-only">Toggle navigation menu</span>
+                </Button>
+            </SheetTrigger>
+            <SheetContent side="left">
+                <div className="p-4">
+                    <Link href="#" className="mb-8 flex items-center" prefetch={false} onClick={() => setIsMenuOpen(false)}>
+                        <WhatsOLogo />
+                    </Link>
+                    <nav className="grid gap-4">
+                      <Link href="#features" className="text-lg font-medium" prefetch={false} onClick={() => setIsMenuOpen(false)}>
+                          Features
+                      </Link>
+                      <Link href="#testimonials" className="text-lg font-medium" prefetch={false} onClick={() => setIsMenuOpen(false)}>
+                          Testimonials
+                      </Link>
+                      <Link href="#pricing" className="text-lg font-medium" prefetch={false} onClick={() => setIsMenuOpen(false)}>
+                          Pricing
+                      </Link>
+                    </nav>
+                    <div className="mt-8 pt-4 border-t">
+                       <div className="flex flex-col gap-2">
+                         <Button variant="ghost" asChild>
+                             <Link href="/login" onClick={() => setIsMenuOpen(false)}>Sign In</Link>
+                         </Button>
+                         <Button asChild className="bg-accent hover:bg-accent/90 text-accent-foreground">
+                             <Link href="/signup" onClick={() => setIsMenuOpen(false)}>Get Started</Link>
+                         </Button>
+                      </div>
+                    </div>
+                </div>
+            </SheetContent>
+        </Sheet>
         </div>
       </header>
       <main className="flex-1">
