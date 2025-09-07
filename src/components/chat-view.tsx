@@ -269,8 +269,24 @@ async function sendWhatsAppTextMessage(userId: string, to: string, message: stri
 }
 
 
+// Typing animation component
+const TypingIndicator = () => {
+    return (
+        <div className="flex items-center gap-1 py-1">
+            <span className="text-sm text-muted-foreground mr-2">AI is typing</span>
+            <div className="flex gap-1">
+                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse [animation-delay:0ms]"></div>
+                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse [animation-delay:150ms]"></div>
+                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse [animation-delay:300ms]"></div>
+            </div>
+        </div>
+    );
+};
+
 const MessageContent = ({ message }: { message: Message }) => {
     switch (message.type) {
+        case 'typing':
+            return <TypingIndicator />;
         case 'image':
             return (
                 <div className="p-1">
@@ -767,12 +783,15 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                                       : "bg-chat-incoming text-chat-incoming-foreground"
                                 )}>
                                     <MessageContent message={message} />
-                                    <span className={cn(
-                                    "text-xs float-right mt-1 opacity-70",
-                                     message.sender === 'agent' ? 'text-chat-outgoing-foreground' : 'text-chat-incoming-foreground'
-                                    )}>
-                                    {formatTimestamp(message.timestamp)}
-                                    </span>
+                                    {/* Don't show timestamp for typing messages */}
+                                    {message.type !== 'typing' && (
+                                        <span className={cn(
+                                        "text-xs float-right mt-1 opacity-70",
+                                         message.sender === 'agent' ? 'text-chat-outgoing-foreground' : 'text-chat-incoming-foreground'
+                                        )}>
+                                        {formatTimestamp(message.timestamp)}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                         ))}
