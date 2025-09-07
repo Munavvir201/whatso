@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
             conversationHistory: "No history",
             clientData: "Test data",
             userApiKey: "AIzaSyAdrA35VXMLrh4BcWY4RogyAMxN8qwz3vA",
-            userModel: "gemini-pro"
+            userModel: "gemini-2.0-flash"
         };
         
         console.log('📋 Calling AI with test input...');

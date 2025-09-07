@@ -22,7 +22,7 @@ export async function automateWhatsAppChat(
   try {
     console.log('🤖 Creating AI instance with user API key...');
     
-    const modelName = input.userModel || 'gemini-pro';
+    const modelName = input.userModel || 'gemini-2.0-flash';
     const googleAIPlugin = googleAI({ apiKey: input.userApiKey });
     const userAI = genkit({
       plugins: [googleAIPlugin],
