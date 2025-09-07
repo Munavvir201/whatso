@@ -60,16 +60,16 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
         if (isGlobalAiEnabled && isChatAiEnabled) {
             console.log('\n🔥 [AI-START] 🤖 AI is enabled. Proceeding to generate response...');
             
-            // Show typing indicator immediately (non-blocking)
-            console.log('🔥 [TYPING] 💬 Adding typing indicator...');
-            storeAgentMessage(userId, from, {
-                content: 'AI is typing...',
-                type: 'typing',
-                sender: 'agent',
+            // Show typing indicator using conversation metadata (fast and reliable)
+            console.log('🔥 [TYPING] 💬 Setting typing indicator...');
+            const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(from);
+            conversationRef.update({
+                isTyping: true,
+                typingStarted: FieldValue.serverTimestamp()
             }).then(() => {
-                console.log('🔥 [TYPING] ✅ Typing indicator added to chat');
+                console.log('🔥 [TYPING] ✅ Typing indicator set via conversation metadata');
             }).catch((typingError: any) => {
-                console.error('🔥 [TYPING] ⚠️ Failed to add typing indicator:', typingError.message);
+                console.error('🔥 [TYPING] ⚠️ Failed to set typing indicator:', typingError.message);
             });
             
             const apiKey = settings.ai?.apiKey || 'AIzaSyAdrA35VXMLrh4BcWY4RogyAMxN8qwz3vA';
@@ -210,13 +210,16 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
                     try {
                         console.log('\n🔥 [DB-SAVE] 💾 Storing AI response in Firestore...');
                         
-                        // Remove typing indicator and replace with actual AI response (non-blocking)
+                        // Remove typing indicator FIRST and wait for completion
                         console.log('🔥 [DB-SAVE] 🗑️ Removing typing indicator...');
-                        removeTypingIndicator(userId, from).catch(err => {
-                            console.error('🔥 [DB-SAVE] ⚠️ Failed to remove typing indicator (non-critical):', err.message);
-                        });
+                        try {
+                            await removeTypingIndicator(userId, from);
+                            console.log('🔥 [DB-SAVE] ✅ Typing indicator removed successfully');
+                        } catch (cleanupErr: any) {
+                            console.error('🔥 [DB-SAVE] ⚠️ Failed to remove typing indicator:', cleanupErr.message);
+                        }
                         
-                        // Always persist the AI (agent) message to Firestore so it appears in the chat UI
+                        // Now persist the AI (agent) message to Firestore so it appears in the chat UI
                         await storeAgentMessage(userId, from, {
                             content: aiResult.response,
                             type: 'text',
@@ -526,24 +529,22 @@ async function getConversationHistory(userId: string, conversationId: string): P
 }
 
 /**
- * Removes typing indicator messages from the conversation
+ * Removes typing indicator messages from the conversation - simplified approach
  */
 async function removeTypingIndicator(userId: string, conversationId: string) {
     try {
-        const messagesRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages');
-        const typingQuery = messagesRef.where('type', '==', 'typing').where('sender', '==', 'agent');
-        const typingSnapshot = await typingQuery.get();
+        // Use a more targeted approach - just mark typing as done rather than complex queries
+        const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
         
-        if (!typingSnapshot.empty) {
-            // Delete each typing indicator document
-            const deletePromises = typingSnapshot.docs.map(doc => doc.ref.delete());
-            await Promise.all(deletePromises);
-            console.log(`🔥 [TYPING-REMOVE] ✅ Removed ${typingSnapshot.docs.length} typing indicators`);
-        } else {
-            console.log('🔥 [TYPING-REMOVE] ℹ️ No typing indicators found to remove');
-        }
+        // Update conversation to indicate typing is done (this is fast and reliable)
+        await conversationRef.update({
+            lastTypingUpdate: FieldValue.serverTimestamp(),
+            isTyping: false
+        });
+        
+        console.log(`🔥 [TYPING-REMOVE] ✅ Marked typing as done for conversation ${conversationId}`);
     } catch (error) {
-        console.error('🔥 [TYPING-REMOVE] ❌ Error removing typing indicator:', error);
+        console.error('🔥 [TYPING-REMOVE] ❌ Error updating typing status:', error);
         // Continue processing even if typing cleanup fails
     }
 }

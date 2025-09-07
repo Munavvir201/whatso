@@ -342,6 +342,7 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
     // State for the AI toggle
     const [isAiEnabledForChat, setIsAiEnabledForChat] = useState(true);
     const [isGlobalAiVerified, setIsGlobalAiVerified] = useState(false);
+    const [isAiTyping, setIsAiTyping] = useState(false);
 
 
     // Fetch global AI status
@@ -355,14 +356,31 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         return () => unsubscribe();
     }, [user]);
 
-    // Fetch and subscribe to per-chat AI status
+    // Fetch and subscribe to per-chat AI status and typing indicators
     useEffect(() => {
         if (!user || !activeChat) return;
         const conversationRef = doc(db, "userSettings", user.uid, "conversations", activeChat.id);
         const unsubscribe = onSnapshot(conversationRef, (docSnap) => {
             if (docSnap.exists()) {
+                const data = docSnap.data();
                 // Default to true if the field is not set
-                setIsAiEnabledForChat(docSnap.data().isAiEnabled !== false);
+                setIsAiEnabledForChat(data.isAiEnabled !== false);
+                
+                // Check typing status
+                const isCurrentlyTyping = data.isTyping === true;
+                const typingStarted = data.typingStarted?.toDate();
+                
+                // Auto-clear typing if it's been more than 30 seconds (fallback)
+                if (isCurrentlyTyping && typingStarted) {
+                    const timeSinceTyping = Date.now() - typingStarted.getTime();
+                    if (timeSinceTyping > 30000) {
+                        setIsAiTyping(false);
+                    } else {
+                        setIsAiTyping(true);
+                    }
+                } else {
+                    setIsAiTyping(isCurrentlyTyping);
+                }
             }
         });
         return () => unsubscribe();
@@ -795,6 +813,15 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                                 </div>
                             </div>
                         ))}
+                        
+                        {/* Show typing indicator if AI is typing */}
+                        {isAiTyping && (
+                            <div className="flex w-full justify-start">
+                                <div className="max-w-[75%] flex-col gap-2 rounded-lg px-3 py-2 text-sm shadow-sm bg-chat-incoming text-chat-incoming-foreground">
+                                    <TypingIndicator />
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
                 
