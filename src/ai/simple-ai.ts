@@ -14,8 +14,6 @@ export interface SimpleAIOutput {
 
 export async function generateSimpleAIResponse(input: SimpleAIInput): Promise<SimpleAIOutput> {
   try {
-    console.log('🤖 Using simple AI implementation...');
-    
     // Map the model name to a valid Google API model
     const modelMap: { [key: string]: string } = {
       'gemini-2.5-flash': 'gemini-2.0-flash',
@@ -29,8 +27,6 @@ export async function generateSimpleAIResponse(input: SimpleAIInput): Promise<Si
     
     const rawModel = input.userModel?.replace('googleai/', '') || 'gemini-2.0-flash';
     const modelName = modelMap[rawModel] || 'gemini-2.0-flash';
-    console.log(`🤖 Model: ${modelName}`);
-    console.log(`🔑 API Key length: ${input.userApiKey.length}`);
     
     // Create the prompt
     const prompt = `You are a helpful AI sales agent for WhatsApp conversations.
@@ -48,8 +44,6 @@ Please provide a friendly, helpful response that engages the customer and guides
 
 Response:`;
 
-    console.log('🤖 Calling Google AI API...');
-    
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${input.userApiKey}`, {
       method: 'POST',
       headers: {
@@ -77,21 +71,16 @@ Response:`;
     }
     
     const data = await response.json();
-    console.log('📋 API Response:', JSON.stringify(data, null, 2));
-    
     const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I could not generate a response.';
-    
-    console.log(`✅ AI response generated: "${generatedText.substring(0, 100)}..."`);
     
     return { response: generatedText };
     
   } catch (error: any) {
-    console.error('🔴 Simple AI generation failed:', error);
+    console.error('🔴 AI generation failed:', error.message);
     
     // Return a fallback response instead of throwing
     const fallbackResponse = `Thank you for your message! I'm here to help you with any questions about our products and services. How can I assist you today?`;
     
-    console.log('🔄 Using fallback response');
     return { response: fallbackResponse };
   }
 }

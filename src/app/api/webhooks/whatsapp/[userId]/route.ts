@@ -57,17 +57,15 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
         console.log(`🔥 [8/8] - isChatAiEnabled: ${isChatAiEnabled}`);
         console.log(`🔥 [8/8] - Both enabled: ${isGlobalAiEnabled && isChatAiEnabled}`);
         
+        // Set typing indicator immediately when AI is enabled (non-blocking)
         if (isGlobalAiEnabled && isChatAiEnabled) {
             console.log('\n🔥 [AI-START] 🤖 AI is enabled. Proceeding to generate response...');
             
-            // Show typing indicator using conversation metadata (fast and reliable)
-            console.log('🔥 [TYPING] 💬 Setting typing indicator...');
+            // Set typing indicator immediately and asynchronously
             const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(from);
             conversationRef.update({
                 isTyping: true,
                 typingStarted: FieldValue.serverTimestamp()
-            }).then(() => {
-                console.log('🔥 [TYPING] ✅ Typing indicator set via conversation metadata');
             }).catch((typingError: any) => {
                 console.error('🔥 [TYPING] ⚠️ Failed to set typing indicator:', typingError.message);
             });
@@ -75,21 +73,14 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
             const apiKey = settings.ai?.apiKey || 'AIzaSyAdrA35VXMLrh4BcWY4RogyAMxN8qwz3vA';
             const modelName = settings.ai?.model || 'gemini-2.0-flash';
             
-            console.log(`🔥 [AI-CONFIG] API Key analysis:`);
-            console.log(`🔥 [AI-CONFIG] - Has custom API key: ${!!settings.ai?.apiKey}`);
-            console.log(`🔥 [AI-CONFIG] - Using API key: ${apiKey.substring(0, 10)}... (${apiKey.length} chars)`);
-            console.log(`🔥 [AI-CONFIG] - Model: ${modelName}`);
+            console.log(`🔥 [AI-CONFIG] Using model: ${modelName} with ${apiKey.length} char API key`);
 
             if (!apiKey) {
                 console.error("🔥 [Abort] 🔴 AI API key is missing. Cannot generate response.");
                 return;
             }
 
-            // Small delay to ensure Firestore write consistency
-            console.log('\n🔥 [AI-HISTORY] ⏳ Waiting 500ms for Firestore consistency...');
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-            // Fetch conversation history (excluding current message)
+            // Fetch conversation history immediately (no delay needed)
             console.log('🔥 [AI-HISTORY] 📜 Fetching conversation history...');
             const pastHistory = await getConversationHistory(userId, from);
             
@@ -99,9 +90,7 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
                 ? currentMessageLine
                 : `${pastHistory}\n${currentMessageLine}`;
                 
-            console.log(`🔥 [AI-HISTORY] Past history (${pastHistory.length} chars): ${pastHistory}`);
-            console.log(`🔥 [AI-HISTORY] Current message: ${currentMessageLine}`);
-            console.log(`🔥 [AI-HISTORY] Complete history (${conversationHistory.length} chars): ${conversationHistory}`);
+            console.log(`🔥 [AI-HISTORY] History: ${pastHistory.length} chars past + current message = ${conversationHistory.length} chars total`);
 
             const trainingContext = settings.trainingData || {};
             const fullTrainingData = `
@@ -110,19 +99,10 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
               CHAT FLOW: ${trainingContext.chatFlow || ""}
             `.trim();
             
-            console.log(`\n🔥 [AI-TRAINING] Training data analysis:`);
-            console.log(`🔥 [AI-TRAINING] - clientData: "${trainingContext.clientData || 'EMPTY'}"`); 
-            console.log(`🔥 [AI-TRAINING] - trainingInstructions: "${trainingContext.trainingInstructions || 'EMPTY'}"`); 
-            console.log(`🔥 [AI-TRAINING] - chatFlow: "${trainingContext.chatFlow || 'EMPTY'}"`); 
-            console.log(`🔥 [AI-TRAINING] - Full training data (${fullTrainingData.length} chars): ${fullTrainingData}`);
+            console.log(`🔥 [AI-TRAINING] Using ${fullTrainingData.length} chars of training data`);
 
             try {
-                console.log(`\n🔥 [AI-CALL] 🚀 Calling generateSimpleAIResponse with:`);
-                console.log(`🔥 [AI-CALL] - message: "${contentForAi}"`);
-                console.log(`🔥 [AI-CALL] - conversationHistory: "${conversationHistory}"`);
-                console.log(`🔥 [AI-CALL] - clientData: "${fullTrainingData}"`);
-                console.log(`🔥 [AI-CALL] - userApiKey: ${apiKey.substring(0, 10)}...`);
-                console.log(`🔥 [AI-CALL] - userModel: "${modelName}"`);
+                console.log(`🔥 [AI-CALL] 🚀 Generating AI response for: "${contentForAi}"`);
                 
                 const aiResult = await generateSimpleAIResponse({
                     message: contentForAi,
@@ -132,7 +112,7 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
                     userModel: modelName,
                 });
                 
-                console.log(`\n🔥 [AI-RESULT] 🤖 AI Result received:`, JSON.stringify(aiResult, null, 2));
+                console.log(`🔥 [AI-RESULT] 🤖 AI response received (${aiResult?.response?.length || 0} chars)`);
 
                 if (aiResult && aiResult.response && aiResult.response.trim()) {
                     console.log(`\n🔥 [AI-SUCCESS] ✅ AI Response generated successfully:`);
@@ -489,28 +469,35 @@ async function storeInitialMessage(userId: string, conversationId: string, messa
 }
 
 /**
- * Retrieves the last 15 messages from a conversation for AI context (excluding very recent ones to avoid race conditions)
+ * Retrieves the last 15 messages from a conversation for AI context (optimized for speed)
  */
 async function getConversationHistory(userId: string, conversationId: string): Promise<string> {
     try {
         const messagesRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages');
         
-        // Get messages older than 1 second ago to avoid race conditions with current message storage
-        const oneSecondAgo = new Date(Date.now() - 1000);
+        // Get recent messages but exclude the very last one to avoid race conditions
         const messagesSnapshot = await messagesRef
-            .where('timestamp', '<', oneSecondAgo)
             .orderBy('timestamp', 'desc')
-            .limit(15)
+            .limit(16)  // Get 16 to exclude the most recent one
             .get();
         
-        console.log(`🔥 [HISTORY-DEBUG] Found ${messagesSnapshot.docs.length} historical messages`);
+        console.log(`🔥 [HISTORY-DEBUG] Found ${messagesSnapshot.docs.length} total messages`);
         
         if (messagesSnapshot.empty) {
             console.log(`🔥 [HISTORY-DEBUG] No historical messages found`);
             return "No previous conversation history.";
         }
         
-        const messages = messagesSnapshot.docs.reverse().map((doc, index) => {
+        // Skip the first (most recent) message to avoid race conditions, then take 15 messages
+        const historicalDocs = messagesSnapshot.docs.slice(1, 16);
+        console.log(`🔥 [HISTORY-DEBUG] Using ${historicalDocs.length} historical messages`);
+        
+        if (historicalDocs.length === 0) {
+            console.log(`🔥 [HISTORY-DEBUG] No historical messages after filtering`);
+            return "No previous conversation history.";
+        }
+        
+        const messages = historicalDocs.reverse().map((doc, index) => {
             const data = doc.data();
             const sender = data.sender === 'customer' ? 'Customer' : 'Agent';
             const content = data.content || `[${data.type} message]`;
