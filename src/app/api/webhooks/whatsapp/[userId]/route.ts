@@ -60,18 +60,17 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
         if (isGlobalAiEnabled && isChatAiEnabled) {
             console.log('\n🔥 [AI-START] 🤖 AI is enabled. Proceeding to generate response...');
             
-            // Show typing indicator immediately
+            // Show typing indicator immediately (non-blocking)
             console.log('🔥 [TYPING] 💬 Adding typing indicator...');
-            try {
-                await storeAgentMessage(userId, from, {
-                    content: 'AI is typing...',
-                    type: 'typing',
-                    sender: 'agent',
-                });
+            storeAgentMessage(userId, from, {
+                content: 'AI is typing...',
+                type: 'typing',
+                sender: 'agent',
+            }).then(() => {
                 console.log('🔥 [TYPING] ✅ Typing indicator added to chat');
-            } catch (typingError: any) {
+            }).catch((typingError: any) => {
                 console.error('🔥 [TYPING] ⚠️ Failed to add typing indicator:', typingError.message);
-            }
+            });
             
             const apiKey = settings.ai?.apiKey || 'AIzaSyAdrA35VXMLrh4BcWY4RogyAMxN8qwz3vA';
             const modelName = settings.ai?.model || 'gemini-2.0-flash';
@@ -211,9 +210,11 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
                     try {
                         console.log('\n🔥 [DB-SAVE] 💾 Storing AI response in Firestore...');
                         
-                        // Remove typing indicator and replace with actual AI response
+                        // Remove typing indicator and replace with actual AI response (non-blocking)
                         console.log('🔥 [DB-SAVE] 🗑️ Removing typing indicator...');
-                        await removeTypingIndicator(userId, from);
+                        removeTypingIndicator(userId, from).catch(err => {
+                            console.error('🔥 [DB-SAVE] ⚠️ Failed to remove typing indicator (non-critical):', err.message);
+                        });
                         
                         // Always persist the AI (agent) message to Firestore so it appears in the chat UI
                         await storeAgentMessage(userId, from, {
@@ -242,13 +243,11 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
                 console.error(`🔥 [AI-ERROR] Full error object:`, aiError);
                 console.error(`🔥 [AI-ERROR] Error stack:`, aiError.stack);
                 
-                // Remove typing indicator on error
-                try {
-                    console.log('🔥 [AI-ERROR] 🗑️ Removing typing indicator due to error...');
-                    await removeTypingIndicator(userId, from);
-                } catch (removeError: any) {
+                // Remove typing indicator on error (non-blocking)
+                console.log('🔥 [AI-ERROR] 🗑️ Removing typing indicator due to error...');
+                removeTypingIndicator(userId, from).catch(removeError => {
                     console.error('🔥 [AI-ERROR] Failed to remove typing indicator:', removeError.message);
-                }
+                });
             }
 
         } else {
@@ -536,17 +535,16 @@ async function removeTypingIndicator(userId: string, conversationId: string) {
         const typingSnapshot = await typingQuery.get();
         
         if (!typingSnapshot.empty) {
-            const batch = db.batch();
-            typingSnapshot.docs.forEach(doc => {
-                batch.delete(doc.ref);
-            });
-            await batch.commit();
+            // Delete each typing indicator document
+            const deletePromises = typingSnapshot.docs.map(doc => doc.ref.delete());
+            await Promise.all(deletePromises);
             console.log(`🔥 [TYPING-REMOVE] ✅ Removed ${typingSnapshot.docs.length} typing indicators`);
         } else {
             console.log('🔥 [TYPING-REMOVE] ℹ️ No typing indicators found to remove');
         }
     } catch (error) {
         console.error('🔥 [TYPING-REMOVE] ❌ Error removing typing indicator:', error);
+        // Continue processing even if typing cleanup fails
     }
 }
 

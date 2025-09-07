@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/firebase-admin';
+import { db, FieldValue } from '@/lib/firebase-admin';
 import { generateSimpleAIResponse } from '@/ai/simple-ai';
 
 export async function GET(req: NextRequest) {
@@ -150,12 +150,12 @@ async function storeAgentMessage(userId: string, conversationId: string, message
     const batch = db.batch();
     batch.set(messageRef, {
         ...messageData,
-        timestamp: db.FieldValue.serverTimestamp(),
+        timestamp: FieldValue.serverTimestamp(),
         status: 'sent',
     });
     
     batch.set(conversationRef, {
-        lastUpdated: db.FieldValue.serverTimestamp(),
+        lastUpdated: FieldValue.serverTimestamp(),
         lastMessage: messageData.content || `[${messageData.type}]`,
     }, { merge: true });
     
