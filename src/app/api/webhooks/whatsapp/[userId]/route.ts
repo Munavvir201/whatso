@@ -1,7 +1,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db, FieldValue } from '@/lib/firebase-admin';
-import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
+import { generateSimpleAIResponse } from '@/ai/simple-ai';
 import { getWhatsAppCredentials, downloadMediaAsDataUri, sendWhatsAppMessage } from '@/lib/whatsapp';
 import { genkit } from 'genkit';
 import { googleAI } from '@genkit-ai/googleai';
@@ -11,39 +11,73 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
     const from = message.from;
     const profileName = contact?.profile?.name;
     
+    console.log(`\n🔥 [WEBHOOK DEBUG] Starting message processing`);
+    console.log(`🔥 [WEBHOOK DEBUG] UserId: ${userId}`);
+    console.log(`🔥 [WEBHOOK DEBUG] From: ${from}`);
+    console.log(`🔥 [WEBHOOK DEBUG] Message type: ${message.type}`);
+    console.log(`🔥 [WEBHOOK DEBUG] Full message object:`, JSON.stringify(message, null, 2));
+    console.log(`🔥 [WEBHOOK DEBUG] Contact info:`, JSON.stringify(contact, null, 2));
+    
     try {
-        console.log(`[1/8] Storing initial message for ${from}...`);
+        console.log(`\n🔥 [1/8] Storing initial message for ${from}...`);
         const { messageId, contentForAi } = await storeInitialMessage(userId, from, message, profileName);
-        console.log(`[2/8] ✅ Message ${messageId} stored. Content for AI: "${contentForAi}"`);
+        console.log(`🔥 [2/8] ✅ Message ${messageId} stored. Content for AI: "${contentForAi}"`);
 
-        console.log(`[3/8] Fetching user settings for ${userId}...`);
+        console.log(`\n🔥 [3/8] Fetching user settings for ${userId}...`);
         const userSettingsDoc = await db.collection('userSettings').doc(userId).get();
         
         if (!userSettingsDoc.exists) {
-            console.log(`[Abort] 🤖 User settings not found for ${userId}.`);
+            console.log(`🔥 [Abort] 🚫 User settings not found for ${userId}.`);
             return;
         }
         const settings = userSettingsDoc.data() || {};
-        console.log(`[4/8] ✅ User settings found.`);
+        console.log(`🔥 [4/8] ✅ User settings found:`);
+        console.log(`🔥 [4/8] - AI settings:`, JSON.stringify(settings.ai || {}, null, 2));
+        console.log(`🔥 [4/8] - Training data:`, JSON.stringify(settings.trainingData || {}, null, 2));
 
         const isGlobalAiEnabled = settings.ai?.status === 'verified';
-        console.log(`[5/8] ℹ️ Global AI status for user ${userId}: ${isGlobalAiEnabled}`);
+        console.log(`\n🔥 [5/8] ℹ️ Global AI status analysis:`);
+        console.log(`🔥 [5/8] - AI object exists: ${!!settings.ai}`);
+        console.log(`🔥 [5/8] - AI status: "${settings.ai?.status}"`);
+        console.log(`🔥 [5/8] - Is "verified": ${settings.ai?.status === 'verified'}`);
+        console.log(`🔥 [5/8] - Final isGlobalAiEnabled: ${isGlobalAiEnabled}`);
 
-        console.log(`[6/8] Fetching conversation settings for ${from}...`);
+        console.log(`\n🔥 [6/8] Fetching conversation settings for ${from}...`);
         const conversationDoc = await db.collection('userSettings').doc(userId).collection('conversations').doc(from).get();
-        const isChatAiEnabled = conversationDoc.exists && conversationDoc.data()?.isAiEnabled !== false;
-        console.log(`[7/8] ℹ️ Chat AI status for conversation ${from}: ${isChatAiEnabled}`);
+        const conversationData = conversationDoc.exists ? conversationDoc.data() : null;
+        const isChatAiEnabled = !conversationDoc.exists || conversationDoc.data()?.isAiEnabled !== false;
+        console.log(`🔥 [7/8] ℹ️ Chat AI status analysis:`);
+        console.log(`🔥 [7/8] - Conversation doc exists: ${conversationDoc.exists}`);
+        console.log(`🔥 [7/8] - Conversation data:`, JSON.stringify(conversationData, null, 2));
+        console.log(`🔥 [7/8] - isAiEnabled field: ${conversationData?.isAiEnabled}`);
+        console.log(`🔥 [7/8] - Final isChatAiEnabled: ${isChatAiEnabled}`);
 
+        console.log(`\n🔥 [8/8] Final AI decision:`);
+        console.log(`🔥 [8/8] - isGlobalAiEnabled: ${isGlobalAiEnabled}`);
+        console.log(`🔥 [8/8] - isChatAiEnabled: ${isChatAiEnabled}`);
+        console.log(`🔥 [8/8] - Both enabled: ${isGlobalAiEnabled && isChatAiEnabled}`);
+        
         if (isGlobalAiEnabled && isChatAiEnabled) {
-            console.log('[8/8] 🤖 AI is enabled. Proceeding to generate response...');
+            console.log('\n🔥 [AI-START] 🤖 AI is enabled. Proceeding to generate response...');
             
             const apiKey = settings.ai?.apiKey || 'AIzaSyAdrA35VXMLrh4BcWY4RogyAMxN8qwz3vA';
-            const modelName = settings.ai?.model || 'gemini-pro';
+            const modelName = settings.ai?.model || 'gemini-2.0-flash';
+            
+            console.log(`🔥 [AI-CONFIG] API Key analysis:`);
+            console.log(`🔥 [AI-CONFIG] - Has custom API key: ${!!settings.ai?.apiKey}`);
+            console.log(`🔥 [AI-CONFIG] - Using API key: ${apiKey.substring(0, 10)}... (${apiKey.length} chars)`);
+            console.log(`🔥 [AI-CONFIG] - Model: ${modelName}`);
 
             if (!apiKey) {
-                console.error("[Abort] 🔴 AI API key is missing. Cannot generate response.");
+                console.error("🔥 [Abort] 🔴 AI API key is missing. Cannot generate response.");
                 return;
             }
+
+            // Fetch conversation history
+            console.log('\n🔥 [AI-HISTORY] 📜 Fetching conversation history...');
+            const conversationHistory = await getConversationHistory(userId, from);
+            console.log(`🔥 [AI-HISTORY] Retrieved conversation history (${conversationHistory.length} chars):`);
+            console.log(`🔥 [AI-HISTORY] History content: ${conversationHistory}`);
 
             const trainingContext = settings.trainingData || {};
             const fullTrainingData = `
@@ -51,33 +85,143 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
               INSTRUCTIONS: ${trainingContext.trainingInstructions || ""}
               CHAT FLOW: ${trainingContext.chatFlow || ""}
             `.trim();
+            
+            console.log(`\n🔥 [AI-TRAINING] Training data analysis:`);
+            console.log(`🔥 [AI-TRAINING] - clientData: "${trainingContext.clientData || 'EMPTY'}"`); 
+            console.log(`🔥 [AI-TRAINING] - trainingInstructions: "${trainingContext.trainingInstructions || 'EMPTY'}"`); 
+            console.log(`🔥 [AI-TRAINING] - chatFlow: "${trainingContext.chatFlow || 'EMPTY'}"`); 
+            console.log(`🔥 [AI-TRAINING] - Full training data (${fullTrainingData.length} chars): ${fullTrainingData}`);
 
             try {
-                const googleAIPlugin = googleAI({ apiKey });
-                const ai = genkit({
-                    plugins: [googleAIPlugin],
-                    model: `googleai/${modelName}` as any,
+                console.log(`\n🔥 [AI-CALL] 🚀 Calling generateSimpleAIResponse with:`);
+                console.log(`🔥 [AI-CALL] - message: "${contentForAi}"`);
+                console.log(`🔥 [AI-CALL] - conversationHistory: "${conversationHistory}"`);
+                console.log(`🔥 [AI-CALL] - clientData: "${fullTrainingData}"`);
+                console.log(`🔥 [AI-CALL] - userApiKey: ${apiKey.substring(0, 10)}...`);
+                console.log(`🔥 [AI-CALL] - userModel: "${modelName}"`);
+                
+                const aiResult = await generateSimpleAIResponse({
+                    message: contentForAi,
+                    conversationHistory: conversationHistory,
+                    clientData: fullTrainingData,
+                    userApiKey: apiKey,
+                    userModel: modelName,
                 });
                 
-                const aiResult = await automateWhatsAppChat({
-                    message: contentForAi,
-                    conversationHistory: "No history available.", // To-do: Implement history retrieval
-                    clientData: fullTrainingData,
-                });
+                console.log(`\n🔥 [AI-RESULT] 🤖 AI Result received:`, JSON.stringify(aiResult, null, 2));
 
-                if (aiResult.response) {
-                    console.log(`🤖 AI Response generated: "${aiResult.response}"`);
-                    await sendWhatsAppMessage(userId, from, { type: 'text', text: { body: aiResult.response } });
-                    console.log(`✅ AI response sent successfully to ${from}.`);
+                if (aiResult && aiResult.response && aiResult.response.trim()) {
+                    console.log(`\n🔥 [AI-SUCCESS] ✅ AI Response generated successfully:`);
+                    console.log(`🔥 [AI-SUCCESS] Response: "${aiResult.response}"`);
+                    
+                    let sendRes = null;
+                    let whatsappMessageId = null;
+                    
+                    try {
+                        console.log('\n🔥 [WHATSAPP-SEND] 📤 Attempting to send WhatsApp message...');
+                        console.log(`🔥 [WHATSAPP-SEND] - To: ${from}`);
+                        console.log(`🔥 [WHATSAPP-SEND] - Message: "${aiResult.response}"`);
+                        
+                        // Clean the AI response (remove extra newlines/spaces that might cause API errors)
+                        const cleanResponse = aiResult.response.trim().replace(/\n+/g, ' ');
+                        console.log(`🔥 [WHATSAPP-SEND] - Cleaned message: "${cleanResponse}"`);
+                        
+                        // Try sending with proper message structure
+                        sendRes = await sendWhatsAppMessage(userId, from, { 
+                            type: 'text', 
+                            text: { body: cleanResponse } 
+                        });
+                        
+                        whatsappMessageId = sendRes?.messages?.[0]?.id || sendRes?.messages?.[0]?.message_id;
+                        
+                        console.log(`🔥 [WHATSAPP-SEND] ✅ AI response sent successfully to ${from}`);
+                        console.log(`🔥 [WHATSAPP-SEND] WhatsApp message ID: ${whatsappMessageId}`);
+                        console.log(`🔥 [WHATSAPP-SEND] Full send response:`, JSON.stringify(sendRes, null, 2));
+                        
+                    } catch (whatsappError: any) {
+                        console.error('\n🔥 [WHATSAPP-ERROR] ⚠️ Failed to send WhatsApp message:');
+                        console.error(`🔥 [WHATSAPP-ERROR] Error message: ${whatsappError.message}`);
+                        console.error(`🔥 [WHATSAPP-ERROR] Error response status: ${whatsappError.response?.status}`);
+                        console.error(`🔥 [WHATSAPP-ERROR] Error response data:`, JSON.stringify(whatsappError.response?.data, null, 2));
+                        console.error(`🔥 [WHATSAPP-ERROR] Error stack:`, whatsappError.stack);
+                        
+                        // Try alternative sending method
+                        try {
+                            console.log(`🔥 [WHATSAPP-RETRY] Trying alternative send method...`);
+                            
+                            // Get WhatsApp credentials directly
+                            const { phoneNumberId, accessToken } = await getWhatsAppCredentials(userId, ['phoneNumberId', 'accessToken']);
+                            
+                            // Direct API call with fetch instead of axios
+                            const directResponse = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
+                                method: 'POST',
+                                headers: {
+                                    'Authorization': `Bearer ${accessToken}`,
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    messaging_product: 'whatsapp',
+                                    to: from,
+                                    type: 'text',
+                                    text: { body: cleanResponse }
+                                })
+                            });
+                            
+                            if (directResponse.ok) {
+                                const directResult = await directResponse.json();
+                                whatsappMessageId = directResult?.messages?.[0]?.id;
+                                console.log(`🔥 [WHATSAPP-RETRY] ✅ Alternative method worked! Message ID: ${whatsappMessageId}`);
+                            } else {
+                                const errorData = await directResponse.text();
+                                console.error(`🔥 [WHATSAPP-RETRY] 🔴 Alternative method also failed: ${directResponse.status} ${errorData}`);
+                            }
+                        } catch (retryError: any) {
+                            console.error(`🔥 [WHATSAPP-RETRY] 🔴 Retry failed:`, retryError.message);
+                        }
+                        
+                        // CRITICAL: Even if all WhatsApp sending fails, we continue to save the message
+                        console.log(`🔥 [WHATSAPP-ERROR] ⚠️ WhatsApp send failed, but continuing to save AI response to database...`);
+                    }
+
+                    try {
+                        console.log('\n🔥 [DB-SAVE] 💾 Storing AI response in Firestore...');
+                        // Always persist the AI (agent) message to Firestore so it appears in the chat UI
+                        await storeAgentMessage(userId, from, {
+                            content: aiResult.response,
+                            type: 'text',
+                            sender: 'agent',
+                            whatsappMessageId: whatsappMessageId,
+                        });
+                        console.log('🔥 [DB-SAVE] ✅ Successfully stored AI response in Firestore conversation messages.');
+                    } catch (persistErr: any) {
+                        console.error('\n🔥 [DB-ERROR] 🔴 CRITICAL: Failed to store AI response in Firestore:');
+                        console.error(`🔥 [DB-ERROR] Error message: ${persistErr.message}`);
+                        console.error(`🔥 [DB-ERROR] Error stack:`, persistErr.stack);
+                    }
                 } else {
-                    console.log(`🤖 AI generated an empty response. Not sending.`);
+                    console.log(`\n🔥 [AI-EMPTY] 🤖 AI generated an empty or invalid response:`);
+                    console.log(`🔥 [AI-EMPTY] aiResult object:`, JSON.stringify(aiResult, null, 2));
+                    console.log(`🔥 [AI-EMPTY] Response exists: ${!!aiResult?.response}`);
+                    console.log(`🔥 [AI-EMPTY] Response trimmed length: ${aiResult?.response?.trim()?.length || 0}`);
                 }
             } catch (aiError: any) {
-                console.error("🔴 FAILED TO GENERATE OR SEND AI RESPONSE:", aiError);
+                console.error("\n🔥 [AI-ERROR] 🔴 FAILED TO GENERATE OR SEND AI RESPONSE:");
+                console.error(`🔥 [AI-ERROR] Error name: ${aiError.name}`);
+                console.error(`🔥 [AI-ERROR] Error message: ${aiError.message}`);
+                console.error(`🔥 [AI-ERROR] Error cause: ${aiError.cause}`);
+                console.error(`🔥 [AI-ERROR] Full error object:`, aiError);
+                console.error(`🔥 [AI-ERROR] Error stack:`, aiError.stack);
             }
 
         } else {
-            console.log('[8/8] 🤖 AI is disabled for this user or chat. No response will be sent.');
+            console.log('\n🔥 [AI-DISABLED] 🤖 AI is disabled - no response will be sent.');
+            console.log(`🔥 [AI-DISABLED] Reason: globalAI=${isGlobalAiEnabled}, chatAI=${isChatAiEnabled}`);
+            if (!isGlobalAiEnabled) {
+                console.log(`🔥 [AI-DISABLED] Global AI not verified. Status: "${settings.ai?.status}"`);
+            }
+            if (!isChatAiEnabled) {
+                console.log(`🔥 [AI-DISABLED] Chat AI disabled for conversation ${from}`);
+            }
         }
 
         if (['image', 'audio', 'video', 'document', 'sticker'].includes(message.type)) {
@@ -86,17 +230,23 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
             });
         }
 
-    } catch (error) {
-        console.error(`🔴 UNEXPECTED ERROR processing message from ${from}:`, error);
+    } catch (error: any) {
+        console.error(`\n🔥 [FATAL-ERROR] 🔴 UNEXPECTED ERROR processing message from ${from}:`);
+        console.error(`🔥 [FATAL-ERROR] Error name: ${error.name}`);
+        console.error(`🔥 [FATAL-ERROR] Error message: ${error.message}`);
+        console.error(`🔥 [FATAL-ERROR] Full error object:`, error);
+        console.error(`🔥 [FATAL-ERROR] Error stack:`, error.stack);
     }
+    
+    console.log(`\n🔥 [WEBHOOK-END] ✅ Finished processing message from ${from} for user ${userId}`);
 }
 
 
 /**
  * Handles webhook verification from Meta.
  */
-export async function GET(req: NextRequest, { params }: { params: { userId:string } }) {
-  const { userId } = params;
+export async function GET(req: NextRequest, { params }: { params: Promise<{ userId: string }> }) {
+  const { userId } = await params;
   const { searchParams } = new URL(req.url);
 
   const mode = searchParams.get('hub.mode');
@@ -135,46 +285,93 @@ export async function GET(req: NextRequest, { params }: { params: { userId:strin
 /**
  * Handles incoming messages from WhatsApp.
  */
-export async function POST(req: NextRequest, { params }: { params: { userId: string } }) {
-    const { userId } = params;
+export async function POST(req: NextRequest, { params }: { params: Promise<{ userId: string }> }) {
+    const { userId } = await params;
+    const timestamp = new Date().toISOString();
+    
+    console.log(`\n\n🔥 =========================== WEBHOOK RECEIVED ===========================`);
+    console.log(`🔥 [WEBHOOK-START] Timestamp: ${timestamp}`);
+    console.log(`🔥 [WEBHOOK-START] User ID: ${userId}`);
     
     try {
         const body = await req.json();
-        console.log('--- New WhatsApp Webhook Event Received ---');
+        console.log(`🔥 [WEBHOOK-BODY] Full webhook body:`);
+        console.log(JSON.stringify(body, null, 2));
 
         const value = body.entry?.[0]?.changes?.[0]?.value;
-        
-        // Log the entire value object to see what we're receiving
-        console.log('Received value object:', JSON.stringify(value, null, 2));
+        console.log(`🔥 [WEBHOOK-VALUE] Extracted value object:`, JSON.stringify(value, null, 2));
 
         if (!value || (!value.messages && !value.statuses)) {
-             console.log("Discarding: Event is not a message or status update.");
+             console.log("🔥 [WEBHOOK-SKIP] Discarding: Event is not a message or status update.");
              return NextResponse.json({ status: 'not a message or status update' }, { status: 200 });
         }
         
         if (value.messages) {
-            console.log("Message received, attempting to process in background...");
+            console.log("🔥 [WEBHOOK-MESSAGE] Message received, processing in background...");
+            console.log(`🔥 [WEBHOOK-MESSAGE] Message count: ${value.messages.length}`);
+            
             try {
                 const message = value.messages[0];
                 const contact = value.contacts?.[0];
-                processMessageAsync(userId, message, contact);
+                console.log(`🔥 [WEBHOOK-MESSAGE] Processing message from: ${message.from}`);
+                console.log(`🔥 [WEBHOOK-MESSAGE] Message type: ${message.type}`);
+                
+                // Process in background but don't await (webhook needs to respond quickly)
+                processMessageAsync(userId, message, contact).catch(bgError => {
+                    console.error(`🔥 [WEBHOOK-BG-ERROR] Background processing failed:`, bgError);
+                });
+                
             } catch (e) {
-                console.error('🔴 IMMEDIATE CRASH in processMessageAsync:', e);
+                console.error('🔥 [WEBHOOK-CRASH] 🔴 IMMEDIATE CRASH in processMessageAsync:', e);
             }
         }
 
         if (value.statuses) {
-            console.log(`Received status update: ${JSON.stringify(value.statuses[0])}`);
+            console.log(`🔥 [WEBHOOK-STATUS] Received status update:`, JSON.stringify(value.statuses[0], null, 2));
         }
 
+        console.log(`🔥 [WEBHOOK-RESPONSE] Sending OK response to Meta`);
         return NextResponse.json({ status: 'ok' }, { status: 200 });
 
-    } catch (error) {
-        console.error('🔴 FAILED TO PARSE WEBHOOK BODY:', error);
+    } catch (error: any) {
+        console.error('🔥 [WEBHOOK-PARSE-ERROR] 🔴 FAILED TO PARSE WEBHOOK BODY:');
+        console.error(`🔥 [WEBHOOK-PARSE-ERROR] Error message: ${error.message}`);
+        console.error(`🔥 [WEBHOOK-PARSE-ERROR] Error stack:`, error.stack);
         return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
     }
 }
 
+
+/**
+ * Stores an agent (AI) message in Firestore and updates the conversation meta.
+ */
+async function storeAgentMessage(
+  userId: string,
+  conversationId: string,
+  messageData: { content: string; type: string; sender: 'agent'; whatsappMessageId?: string }
+) {
+  const conversationRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId);
+  const messagesCol = conversationRef.collection('messages');
+  const messageRef = messagesCol.doc();
+
+  const batch = db.batch();
+  batch.set(messageRef, {
+    ...messageData,
+    timestamp: FieldValue.serverTimestamp(),
+    status: 'sent',
+  });
+  // Update conversation but do NOT increment unreadCount for outgoing messages
+  batch.set(
+    conversationRef,
+    {
+      lastUpdated: FieldValue.serverTimestamp(),
+      lastMessage: messageData.content || `[${messageData.type}]`,
+    },
+    { merge: true }
+  );
+
+  await batch.commit();
+}
 
 /**
  * Stores the initial message in Firestore.
@@ -249,6 +446,32 @@ async function storeInitialMessage(userId: string, conversationId: string, messa
   await batch.commit();
 
   return { messageId: messageRef.id, contentForAi: incomingMessageContent };
+}
+
+/**
+ * Retrieves the last 10 messages from a conversation for AI context
+ */
+async function getConversationHistory(userId: string, conversationId: string): Promise<string> {
+    try {
+        const messagesRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages');
+        const messagesSnapshot = await messagesRef.orderBy('timestamp', 'desc').limit(10).get();
+        
+        if (messagesSnapshot.empty) {
+            return "No previous conversation history.";
+        }
+        
+        const messages = messagesSnapshot.docs.reverse().map(doc => {
+            const data = doc.data();
+            const sender = data.sender === 'customer' ? 'Customer' : 'Agent';
+            const content = data.content || `[${data.type} message]`;
+            return `${sender}: ${content}`;
+        });
+        
+        return messages.join('\n');
+    } catch (error) {
+        console.error('Error fetching conversation history:', error);
+        return "Error retrieving conversation history.";
+    }
 }
 
 /**

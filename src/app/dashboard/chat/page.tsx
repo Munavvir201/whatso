@@ -40,7 +40,13 @@ export default function ChatPage() {
       console.error("Error fetching first chat:", error);
     });
 
-    return () => unsubscribe();
+    return () => {
+      try {
+        unsubscribe();
+      } catch (error) {
+        console.warn("Error unsubscribing from first chat listener:", error);
+      }
+    };
   }, [user, isMobile, activeChatId]);
 
 
@@ -72,7 +78,13 @@ export default function ChatPage() {
       console.error(`Error fetching active chat details for ${activeChatId}:`, error);
       setActiveChat(null);
     });
-    return () => unsubscribe();
+    return () => {
+      try {
+        unsubscribe();
+      } catch (error) {
+        console.warn("Error unsubscribing from active chat listener:", error);
+      }
+    };
   }, [activeChatId, user]);
   
   const handleSelectChat = (id: string) => {

@@ -46,7 +46,7 @@ const formSchema = z.object({
 type AiProviderFormData = z.infer<typeof formSchema>;
 
 const modelOptions: Record<string, string[]> = {
-    gemini: ["gemini-2.5-flash", "gemini-pro"],
+    gemini: ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"],
     openai: ["gpt-4", "gpt-3.5-turbo"],
     anthropic: ["claude-3-opus-20240229", "claude-3-sonnet-20240229"],
 }
@@ -64,7 +64,7 @@ export function AiProviderForm() {
     defaultValues: {
       provider: "gemini",
       apiKey: "",
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       status: "pending",
     },
   });
@@ -94,7 +94,7 @@ export function AiProviderForm() {
       } else {
         setIsEditing(true);
         setSavedSettings(null);
-        form.reset({ provider: "gemini", apiKey: "", model: "gemini-2.5-flash", status: "pending" });
+        form.reset({ provider: "gemini", apiKey: "", model: "gemini-2.0-flash", status: "pending" });
       }
       setIsFetching(false);
     }, (error) => {
@@ -124,9 +124,25 @@ export function AiProviderForm() {
     try {
         const userSettingsRef = doc(db, "userSettings", user.uid);
         
-        // Mock verification - in a real app, you'd call the provider's API
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const isVerified = values.apiKey.length > 10; // Simple mock validation
+        // Test the API key by making a real API call
+        let isVerified = false;
+        try {
+            if (values.provider === 'gemini') {
+                const testResponse = await fetch(`/api/test-ai-debug?message=test&model=${values.model}&apiKey=${values.apiKey}`);
+                const testResult = await testResponse.json();
+                isVerified = testResult.success;
+                
+                if (!isVerified) {
+                    throw new Error(testResult.error || 'API verification failed');
+                }
+            } else {
+                // For other providers, use simple length check for now
+                isVerified = values.apiKey.length > 10;
+            }
+        } catch (error: any) {
+            console.error('API verification error:', error);
+            isVerified = false;
+        }
 
         if (!isVerified) {
             toast({

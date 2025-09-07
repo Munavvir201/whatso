@@ -42,30 +42,52 @@ export async function getWhatsAppCredentials(userId: string, requiredKeys: Crede
  * Sends a message via the WhatsApp API and stores it in Firestore.
  */
 export async function sendWhatsAppMessage(userId: string, to: string, messageData: { type: string, [key: string]: any }) {
-    console.log(`Attempting to send ${messageData.type} message to ${to} for user ${userId}`);
-    const { phoneNumberId, accessToken } = await getWhatsAppCredentials(userId, ['phoneNumberId', 'accessToken']);
+    console.log(`🔥 [WHATSAPP-SEND] Starting send process...`);
+    console.log(`🔥 [WHATSAPP-SEND] - User: ${userId}`);
+    console.log(`🔥 [WHATSAPP-SEND] - To: ${to}`);
+    console.log(`🔥 [WHATSAPP-SEND] - MessageData:`, JSON.stringify(messageData, null, 2));
+    
+    try {
+        const { phoneNumberId, accessToken } = await getWhatsAppCredentials(userId, ['phoneNumberId', 'accessToken']);
+        
+        console.log(`🔥 [WHATSAPP-SEND] - Phone Number ID: ${phoneNumberId}`);
+        console.log(`🔥 [WHATSAPP-SEND] - Access Token Length: ${accessToken.length}`);
+        console.log(`🔥 [WHATSAPP-SEND] - Access Token Preview: ${accessToken.substring(0, 20)}...`);
 
-     if (!phoneNumberId || !accessToken) {
-        // This check is redundant due to the new validation in getWhatsAppCredentials, but good for safety.
-        throw new Error("Cannot send message. Missing Phone Number ID or Access Token.");
+        if (!phoneNumberId || !accessToken) {
+            throw new Error("Cannot send message. Missing Phone Number ID or Access Token.");
+        }
+
+        const apiPayload = {
+            messaging_product: 'whatsapp',
+            to: to,
+            ...messageData
+        };
+        
+        console.log(`🔥 [WHATSAPP-SEND] Final API payload:`, JSON.stringify(apiPayload, null, 2));
+        console.log(`🔥 [WHATSAPP-SEND] API URL: https://graph.facebook.com/v20.0/${phoneNumberId}/messages`);
+
+        const response = await axios.post(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, apiPayload, {
+            headers: { 
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+        });
+        
+        console.log(`🔥 [WHATSAPP-SEND] ✅ Message sent successfully!`);
+        console.log(`🔥 [WHATSAPP-SEND] Response:`, JSON.stringify(response.data, null, 2));
+        
+        return response.data;
+        
+    } catch (error: any) {
+        console.error(`🔥 [WHATSAPP-SEND] 🔴 Send failed:`);
+        console.error(`🔥 [WHATSAPP-SEND] Error status: ${error.response?.status}`);
+        console.error(`🔥 [WHATSAPP-SEND] Error data:`, JSON.stringify(error.response?.data, null, 2));
+        console.error(`🔥 [WHATSAPP-SEND] Error message: ${error.message}`);
+        console.error(`🔥 [WHATSAPP-SEND] Full error:`, error);
+        
+        throw error;
     }
-
-    const apiPayload = {
-      messaging_product: 'whatsapp',
-      to: to,
-      ...messageData
-    };
-
-    const response = await axios.post(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, apiPayload, {
-        headers: { 'Authorization': `Bearer ${accessToken}` },
-    });
-    
-    console.log('✅ Message sent successfully via API.');
-
-    // We no longer save the outgoing message from here to prevent errors.
-    // The chat UI will only show incoming messages until a full sync is implemented.
-    
-    return response.data;
 }
 
 

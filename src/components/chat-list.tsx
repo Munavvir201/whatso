@@ -51,7 +51,13 @@ const useChatList = () => {
             setIsLoading(false);
         });
 
-        return () => unsubscribe();
+        return () => {
+            try {
+                unsubscribe();
+            } catch (error) {
+                console.warn("Error unsubscribing from chat list listener:", error);
+            }
+        };
     }, [user]);
 
     return { chats, isLoading };

@@ -5,52 +5,164 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { Bot, Pencil, Send, Paperclip, Mic, MoreVertical, MessageSquare, ChevronLeft, Trash2, Circle } from "lucide-react"
+import { Bot, Pencil, Send, Paperclip, Mic, MoreVertical, MessageSquare, ChevronLeft, Trash2, Circle, Loader2, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Skeleton } from './ui/skeleton';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
-import { collection, onSnapshot, query, orderBy, Timestamp, doc, getDoc, setDoc, writeBatch, serverTimestamp, addDoc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, Timestamp, doc, getDoc, setDoc, writeBatch, serverTimestamp, addDoc, updateDoc, limit, startAfter, getDocs } from 'firebase/firestore';
 import type { Message, Chat } from '@/types/chat';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
-import OpusMediaRecorder from 'opus-media-recorder';
+// Import OpusMediaRecorder with proper typing
+let OpusMediaRecorder: any;
+if (typeof window !== 'undefined') {
+  OpusMediaRecorder = require('opus-media-recorder');
+}
+
+// Type declaration for opus-media-recorder
+interface OpusMediaRecorderType {
+  constructor: new (stream: MediaStream, options: any, config?: { workerUrl: string }) => OpusMediaRecorderInstance;
+}
+
+interface OpusMediaRecorderInstance {
+  ondataavailable: ((event: BlobEvent) => void) | null;
+  onstop: (() => void) | null;
+  start(): void;
+  stop(): void;
+  state: string;
+  stream: MediaStream;
+}
 
 interface ChatViewProps {
   activeChat: Chat | null;
   onBack?: () => void;
 }
 
+const MESSAGES_PER_PAGE = 20;
+
+/**
+ * Custom hook for chat messages with pagination
+ * - Always loads the most recent messages first
+ * - Shows latest messages at the bottom of the chat
+ * - Loads older messages when scrolling up (infinite scroll)
+ * - Preserves scroll position when loading older messages
+ */
 const useChatMessages = (userId: string | null, chatId: string | null) => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const [hasMoreMessages, setHasMoreMessages] = useState(true);
+    const [lastDoc, setLastDoc] = useState<any>(null);
+    const unsubscribeRef = useRef<(() => void) | null>(null);
+
+    const loadMoreMessages = useCallback(async () => {
+        if (!userId || !chatId || isLoadingMore || !hasMoreMessages) return;
+        
+        setIsLoadingMore(true);
+        try {
+            const messagesRef = collection(db, "userSettings", userId, "conversations", chatId, "messages");
+            let q;
+            
+            if (lastDoc) {
+                q = query(
+                    messagesRef,
+                    orderBy("timestamp", "desc"),
+                    startAfter(lastDoc),
+                    limit(MESSAGES_PER_PAGE)
+                );
+            } else {
+                // This shouldn't happen as we load initial messages differently
+                return;
+            }
+            
+            const snapshot = await getDocs(q);
+            
+            if (snapshot.empty) {
+                setHasMoreMessages(false);
+                return;
+            }
+            
+            const olderMessages: Message[] = snapshot.docs.map(doc => ({ 
+                id: doc.id, 
+                ...doc.data() 
+            } as Message));
+            
+            // Reverse because we queried in desc order but want to display asc
+            olderMessages.reverse();
+            
+            setMessages(prev => [...olderMessages, ...prev]);
+            setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+            
+            if (snapshot.docs.length < MESSAGES_PER_PAGE) {
+                setHasMoreMessages(false);
+            }
+        } catch (error) {
+            console.error('Error loading more messages:', error);
+        } finally {
+            setIsLoadingMore(false);
+        }
+    }, [userId, chatId, lastDoc, isLoadingMore, hasMoreMessages]);
 
     useEffect(() => {
         if (!userId || !chatId) {
             setIsLoading(true);
             setMessages([]);
+            setHasMoreMessages(true);
+            setLastDoc(null);
             return;
-        };
+        }
+
+        // Clean up previous subscription
+        if (unsubscribeRef.current) {
+            unsubscribeRef.current();
+        }
 
         setIsLoading(true);
-        const q = query(collection(db, "userSettings", userId, "conversations", chatId, "messages"), orderBy("timestamp", "asc"));
+        setMessages([]);
+        setHasMoreMessages(true);
+        setLastDoc(null);
         
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const messagesData: Message[] = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
-            setMessages(messagesData);
+        // First, get the most recent messages with real-time updates
+        const messagesRef = collection(db, "userSettings", userId, "conversations", chatId, "messages");
+        const recentMessagesQuery = query(
+            messagesRef,
+            orderBy("timestamp", "desc"),
+            limit(MESSAGES_PER_PAGE)
+        );
+        
+        const unsubscribe = onSnapshot(recentMessagesQuery, (querySnapshot) => {
+            const recentMessages: Message[] = querySnapshot.docs.map(doc => ({ 
+                id: doc.id, 
+                ...doc.data() 
+            } as Message));
+            
+            // Reverse to show oldest first
+            recentMessages.reverse();
+            
+            setMessages(recentMessages);
             setIsLoading(false);
+            
+            // Set up pagination
+            if (querySnapshot.docs.length > 0) {
+                setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1]);
+                setHasMoreMessages(querySnapshot.docs.length === MESSAGES_PER_PAGE);
+            } else {
+                setHasMoreMessages(false);
+            }
         }, (error) => {
             console.error(`Error fetching messages for chat ${chatId}: `, error);
             setIsLoading(false);
         });
-
+        
+        unsubscribeRef.current = unsubscribe;
         return () => unsubscribe();
     }, [chatId, userId]);
 
-    return { messages, isLoading, setMessages };
+
+    return { messages, isLoading, isLoadingMore, hasMoreMessages, setMessages, loadMoreMessages };
 };
 
 const formatTimestamp = (timestamp: Timestamp | Date | null) => {
@@ -67,7 +179,7 @@ async function sendWhatsAppMediaMessage(userId: string, to: string, file: File |
     if (!phoneNumberId || !accessToken) throw new Error("Missing Phone Number ID or Access Token.");
 
     const formData = new FormData();
-    formData.append('file', file, fileName || file.name || `file.${file.type.split('/')[1]}`);
+    formData.append('file', file, fileName || (file as File).name || `file.${file.type.split('/')[1]}`);
     formData.append('type', file.type);
     formData.append('messaging_product', 'whatsapp');
 
@@ -139,9 +251,17 @@ async function sendWhatsAppTextMessage(userId: string, to: string, message: stri
     });
 
     if (!response.ok) {
-        const errorData = await response.json();
-        console.error("Failed to send WhatsApp message:", errorData);
-        throw new Error(errorData.error?.message || "Failed to send message via WhatsApp API.");
+        let errorData;
+        try {
+            errorData = await response.json();
+        } catch (jsonError) {
+            const errorText = await response.text();
+            console.error("Failed to send WhatsApp message (text response):", errorText);
+            throw new Error(`WhatsApp API error ${response.status}: ${errorText || response.statusText}`);
+        }
+        console.error("Failed to send WhatsApp message (JSON response):", errorData);
+        console.error("Response status:", response.status, response.statusText);
+        throw new Error(errorData.error?.message || `WhatsApp API error ${response.status}: ${errorData.message || response.statusText}`);
     }
 
     const responseData = await response.json();
@@ -191,12 +311,13 @@ const MessageContent = ({ message }: { message: Message }) => {
 
 export function ChatView({ activeChat, onBack }: ChatViewProps) {
     const { user } = useAuth();
-    const { messages, isLoading, setMessages } = useChatMessages(user?.uid || null, activeChat?.id || null);
+    const { messages, isLoading, isLoadingMore, hasMoreMessages, setMessages, loadMoreMessages } = useChatMessages(user?.uid || null, activeChat?.id || null);
     const [newMessage, setNewMessage] = useState("");
     const [isSending, setIsSending] = useState(false);
     const viewportRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const [isUserAtBottom, setIsUserAtBottom] = useState(true);
+    const mediaRecorderRef = useRef<OpusMediaRecorderInstance | null>(null);
     const [isRecording, setIsRecording] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
     const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -266,11 +387,68 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         }
     }, [activeChat, user]);
     
+    // Scroll detection for pagination and position tracking
+    const handleScroll = useCallback(() => {
+        if (!viewportRef.current) return;
+        
+        const viewport = viewportRef.current;
+        const scrollTop = viewport.scrollTop;
+        const scrollHeight = viewport.scrollHeight;
+        const clientHeight = viewport.clientHeight;
+        
+        // Check if user is at bottom (within 100px threshold)
+        const isAtBottom = scrollTop + clientHeight >= scrollHeight - 100;
+        setIsUserAtBottom(isAtBottom);
+        
+        // Check if user scrolled near the top to load more messages
+        if (scrollTop < 200 && hasMoreMessages && !isLoadingMore) {
+            const previousScrollHeight = scrollHeight;
+            loadMoreMessages().then(() => {
+                // Maintain scroll position after loading older messages
+                if (viewportRef.current) {
+                    const newScrollHeight = viewportRef.current.scrollHeight;
+                    const scrollDiff = newScrollHeight - previousScrollHeight;
+                    viewportRef.current.scrollTop = scrollTop + scrollDiff;
+                }
+            });
+        }
+    }, [hasMoreMessages, isLoadingMore, loadMoreMessages]);
+    
+    // Always scroll to bottom when chat loads or when switching chats - show latest messages
     useEffect(() => {
-      if (viewportRef.current) {
-        viewportRef.current.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' });
-      }
-    }, [messages]);
+        if (!isLoading && viewportRef.current && messages.length > 0 && activeChat) {
+            // Force scroll to bottom to show latest messages
+            setTimeout(() => {
+                if (viewportRef.current) {
+                    viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+                    setIsUserAtBottom(true);
+                }
+            }, 50);
+        }
+    }, [isLoading, activeChat?.id]);
+    
+    // Also scroll to bottom when new messages arrive in current chat
+    useEffect(() => {
+        if (!isLoading && viewportRef.current && messages.length > 0 && isUserAtBottom) {
+            // Only auto-scroll if user is already at bottom (reading latest)
+            setTimeout(() => {
+                if (viewportRef.current && isUserAtBottom) {
+                    viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+                }
+            }, 50);
+        }
+    }, [messages.length, isLoading, isUserAtBottom]);
+    
+    
+    // Scroll to bottom function
+    const scrollToBottom = useCallback(() => {
+        if (viewportRef.current) {
+            viewportRef.current.scrollTo({ 
+                top: viewportRef.current.scrollHeight, 
+                behavior: 'smooth' 
+            });
+        }
+    }, []);
 
     useEffect(() => {
       if (isRecording) {
@@ -453,13 +631,15 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
             mediaRecorderRef.current = new OpusMediaRecorder(stream, options, { workerUrl });
 
             const chunks: BlobPart[] = [];
-            mediaRecorderRef.current.ondataavailable = (e) => chunks.push(e.data);
-            mediaRecorderRef.current.onstop = () => {
-                const audioBlob = new Blob(chunks, { type: 'audio/ogg; codecs=opus' });
-                sendRecording(audioBlob);
-                stream.getTracks().forEach(track => track.stop());
-            };
-            mediaRecorderRef.current.start();
+            if (mediaRecorderRef.current) {
+                mediaRecorderRef.current.ondataavailable = (e) => chunks.push(e.data);
+                mediaRecorderRef.current.onstop = () => {
+                    const audioBlob = new Blob(chunks, { type: 'audio/ogg; codecs=opus' });
+                    sendRecording(audioBlob);
+                    stream.getTracks().forEach(track => track.stop());
+                };
+                mediaRecorderRef.current.start();
+            }
             setIsRecording(true);
         } catch (err) {
             console.error("Error accessing microphone:", err);
@@ -545,8 +725,24 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
         </div>
       </div>
       <div className="flex-1 flex flex-col min-h-0">
-        <ScrollArea className="flex-1" viewportRef={viewportRef}>
-            <div className="p-4 md:p-6">
+        <div className="flex-1 relative">
+            <div 
+                ref={viewportRef}
+                className="absolute inset-0 overflow-y-auto"
+                onScroll={handleScroll}
+            >
+                <div className="p-4 md:p-6">
+                {/* Loading indicator for older messages */}
+                {isLoadingMore && (
+                    <div className="flex justify-center py-4">
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <span className="text-sm">Loading older messages...</span>
+                        </div>
+                    </div>
+                )}
+                
+                
                 {isLoading ? (
                     <div className="space-y-4">
                         <Skeleton className="h-16 w-3/4 ml-auto rounded-lg" />
@@ -582,8 +778,30 @@ export function ChatView({ activeChat, onBack }: ChatViewProps) {
                         ))}
                     </div>
                 )}
+                
+                {/* End of messages indicator */}
+                {!hasMoreMessages && messages.length > 0 && (
+                    <div className="flex justify-center py-4">
+                        <span className="text-xs text-muted-foreground">Beginning of conversation</span>
+                    </div>
+                )}
+                </div>
+            
+                {/* Scroll to bottom button - shows when user is not at bottom */}
+                {!isUserAtBottom && messages.length > 0 && (
+                    <div className="absolute bottom-4 right-4 z-10">
+                        <Button 
+                            onClick={scrollToBottom}
+                            className="rounded-full shadow-lg bg-primary hover:bg-primary/90 h-12 px-4 gap-2"
+                            title="Go to latest messages"
+                        >
+                            <span className="text-sm font-medium text-primary-foreground">Latest</span>
+                            <ChevronDown className="h-4 w-4 text-primary-foreground" />
+                        </Button>
+                    </div>
+                )}
             </div>
-        </ScrollArea>
+        </div>
       </div>
       <div className="p-4 border-t flex-shrink-0 bg-background/80 backdrop-blur-sm">
         {isRecording ? (

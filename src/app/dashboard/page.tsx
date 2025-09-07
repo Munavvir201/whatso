@@ -7,8 +7,15 @@ import { Bot, Users, MessageSquare, Inbox } from "lucide-react";
 import { BarChart } from "./charts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { db } from '@/lib/firebase';
-import { collection, onSnapshot, query, getCountFromServer, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, getCountFromServer, where, Timestamp } from 'firebase/firestore';
 import { useAuth } from '@/hooks/use-auth';
+
+interface ConversationData {
+    id: string;
+    unreadCount?: number;
+    lastUpdated?: Timestamp;
+    [key: string]: any;
+}
 
 interface DashboardStats {
     totalConversations: number;
@@ -43,12 +50,12 @@ export const useDashboardStats = () => {
         const conversationsRef = collection(db, 'userSettings', user.uid, 'conversations');
 
         const unsubscribe = onSnapshot(conversationsRef, async (snapshot) => {
-            const conversations = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+            const conversations: ConversationData[] = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
             
             const totalConversations = conversations.length;
             const activeUsers = totalConversations; // Assuming each conversation is a unique user
 
-            const unreadConversations = conversations.filter(c => c.unreadCount > 0).length;
+            const unreadConversations = conversations.filter(c => (c.unreadCount || 0) > 0).length;
 
             const messageCounts = await Promise.all(
                 conversations.map(async (conv) => {

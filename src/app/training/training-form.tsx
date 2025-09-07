@@ -22,6 +22,9 @@ import { Loader2, UploadCloud } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { useTrainingContext } from "./training-context";
+import { useAuth } from "@/hooks/use-auth";
+import { db } from "@/lib/firebase";
+import { doc, setDoc } from "firebase/firestore";
 
 const formSchema = z.object({
   clientData: z.string().optional(),
@@ -34,6 +37,7 @@ const formSchema = z.object({
 
 export function TrainingForm() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [trainingResult, setTrainingResult] = useState<string | null>(null);
   const { setClientData, setTrainingInstructions, setChatFlow } = useTrainingContext();
@@ -67,9 +71,29 @@ export function TrainingForm() {
 
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    if (!user) {
+      toast({
+        variant: "destructive",
+        title: "Authentication Error",
+        description: "You must be logged in to save training data.",
+      });
+      return;
+    }
+
     setIsLoading(true);
     setTrainingResult(null);
     try {
+      // Save training data to user settings
+      const userSettingsRef = doc(db, "userSettings", user.uid);
+      const trainingData = {
+        clientData: values.clientData || "No text data provided.",
+        trainingInstructions: values.trainingInstructions,
+        chatFlow: values.chatFlow,
+        lastUpdated: new Date().toISOString()
+      };
+      
+      await setDoc(userSettingsRef, { trainingData }, { merge: true });
+      
       // For now, we only use the text data. In a real app, you'd scrape the website.
       const result = await trainAIWithClientData({
           clientData: values.clientData || "No text data provided.",
@@ -79,7 +103,7 @@ export function TrainingForm() {
       setTrainingResult(result.trainingSummary);
       toast({
         title: "Training Data Saved",
-        description: "The AI model has been updated with your data.",
+        description: "The AI model has been updated with your data and saved to your settings.",
       });
     } catch (error) {
       toast({

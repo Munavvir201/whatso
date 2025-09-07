@@ -8,7 +8,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Bot, Send, User, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTrainingContext } from './training-context';
-import { automateWhatsAppChat } from '@/ai/flows/automate-whatsapp-chat';
+import { generateSimpleAIResponse } from '@/ai/simple-ai';
+import { useAuth } from '@/hooks/use-auth';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 interface TestMessage {
   sender: 'user' | 'ai';
@@ -21,6 +24,7 @@ export function TestChat() {
   const [isLoading, setIsLoading] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
   const { clientData, trainingInstructions, chatFlow } = useTrainingContext();
+  const { user } = useAuth();
 
   useEffect(() => {
     if (viewportRef.current) {
@@ -38,6 +42,23 @@ export function TestChat() {
     setIsLoading(true);
 
     try {
+        // Get user's AI settings
+        if (!user) {
+            throw new Error('You must be logged in to test the AI');
+        }
+        
+        const userSettingsRef = doc(db, "userSettings", user.uid);
+        const userSettingsDoc = await getDoc(userSettingsRef);
+        
+        if (!userSettingsDoc.exists() || !userSettingsDoc.data()?.ai) {
+            throw new Error('Please configure your AI settings first');
+        }
+        
+        const aiSettings = userSettingsDoc.data().ai;
+        if (aiSettings.status !== 'verified') {
+            throw new Error('Please verify your AI settings first');
+        }
+        
         const conversationHistory = messages
           .map(msg => `${msg.sender === 'user' ? 'User' : 'AI'}: ${msg.text}`)
           .join('\n');
@@ -53,10 +74,12 @@ export function TestChat() {
           ${chatFlow}
         `;
 
-        const aiResult = await automateWhatsAppChat({
+        const aiResult = await generateSimpleAIResponse({
             message: input,
             conversationHistory,
             clientData: trainingData,
+            userApiKey: aiSettings.apiKey,
+            userModel: aiSettings.model,
         });
 
         const aiMessage: TestMessage = { sender: 'ai', text: aiResult.response };
