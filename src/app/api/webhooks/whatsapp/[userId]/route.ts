@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, FieldValue } from '@/lib/firebase-admin';
 import { generateSimpleAIResponse } from '@/ai/simple-ai';
+import { generateEnhancedAIResponse, getInstantResponse } from '@/ai/enhanced-ai-responses';
 import { getWhatsAppCredentials, downloadMediaAsDataUri, sendWhatsAppMessage } from '@/lib/whatsapp';
 import { genkit } from 'genkit';
 import { googleAI } from '@genkit-ai/googleai';
@@ -102,17 +103,26 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
             console.log(`🔥 [AI-TRAINING] Using ${fullTrainingData.length} chars of training data`);
 
             try {
-                console.log(`🔥 [AI-CALL] 🚀 Generating AI response for: "${contentForAi}"`);
+                // Check for instant responses first (ultra-fast)
+                const instantResponse = getInstantResponse(contentForAi);
+                if (instantResponse) {
+                    console.log(`⚡ [INSTANT] Using instant response for: "${contentForAi}"`);
+                    const aiResult = { response: instantResponse };
+                } else {
+                    console.log(`🔥 [AI-CALL] 🚀 Generating enhanced AI response for: "${contentForAi}"`);
                 
-                const aiResult = await generateSimpleAIResponse({
-                    message: contentForAi,
-                    conversationHistory: conversationHistory,
-                    clientData: fullTrainingData,
-                    userApiKey: apiKey,
-                    userModel: modelName,
-                });
+                    // Use enhanced AI response system
+                    const aiResult = await generateEnhancedAIResponse({
+                        message: contentForAi,
+                        conversationHistory: conversationHistory,
+                        clientData: fullTrainingData,
+                        userApiKey: apiKey,
+                        userModel: modelName,
+                        responseType: 'auto'  // Auto-detect response category
+                    });
+                }
                 
-                console.log(`🔥 [AI-RESULT] 🤖 AI response received (${aiResult?.response?.length || 0} chars)`);
+                console.log(`🔥 [AI-RESULT] 🤖 ${instantResponse ? 'Instant' : 'Enhanced'} AI response received (${aiResult?.response?.length || 0} chars) ${aiResult?.category ? `[${aiResult.category}]` : ''}`);
 
                 if (aiResult && aiResult.response && aiResult.response.trim()) {
                     console.log(`\n🔥 [AI-SUCCESS] ✅ AI Response generated successfully:`);

@@ -28,21 +28,36 @@ export async function generateSimpleAIResponse(input: SimpleAIInput): Promise<Si
     const rawModel = input.userModel?.replace('googleai/', '') || 'gemini-2.0-flash';
     const modelName = modelMap[rawModel] || 'gemini-2.0-flash';
     
-    // Create the prompt
-    const prompt = `You are a helpful AI sales agent for WhatsApp conversations.
+    // Enhanced professional AI prompt with response categorization
+    const prompt = `You are a professional AI sales assistant for WhatsApp business communications. Your role is to provide exceptional customer service while driving sales conversions.
 
-Conversation History:
-${input.conversationHistory}
+=== BUSINESS CONTEXT ===
+${input.clientData || 'Professional business services'}
 
-Client Data:
-${input.clientData || 'No client data provided.'}
+=== CONVERSATION HISTORY ===
+${input.conversationHistory || 'New conversation'}
 
-Customer Message:
+=== CURRENT CUSTOMER MESSAGE ===
 ${input.message}
 
-Please provide a friendly, helpful response that engages the customer and guides them towards learning more about our products/services. Keep it concise and professional.
+=== RESPONSE GUIDELINES ===
+• Be professional, friendly, and helpful
+• Respond quickly and concisely (under 160 characters when possible)
+• Use customer's context from conversation history
+• Guide toward sales conversion naturally
+• Ask relevant follow-up questions
+• Provide specific information when available
+• Use emojis sparingly and professionally
+• Always end with a clear next step or question
 
-Response:`;
+=== RESPONSE CATEGORIES ===
+Greeting: Welcome warmly + introduce services
+Pricing: Provide clear pricing + value proposition
+Product Info: Give detailed features + benefits
+Support: Address concerns + offer solutions
+Closing: Encourage action + next steps
+
+=== YOUR PROFESSIONAL RESPONSE ===`;
 
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${input.userApiKey}`, {
       method: 'POST',

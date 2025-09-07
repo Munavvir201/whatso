@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Bot, Send, User, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTrainingContext } from './training-context';
-import { generateSimpleAIResponse } from '@/ai/simple-ai';
+import { generateEnhancedAIResponse } from '@/ai/enhanced-ai-responses';
 import { useAuth } from '@/hooks/use-auth';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
@@ -74,12 +74,13 @@ export function TestChat() {
           ${chatFlow}
         `;
 
-        const aiResult = await generateSimpleAIResponse({
+        const aiResult = await generateEnhancedAIResponse({
             message: input,
             conversationHistory,
             clientData: trainingData,
             userApiKey: aiSettings.apiKey,
             userModel: aiSettings.model,
+            responseType: 'auto'  // Auto-detect the best response type
         });
 
         const aiMessage: TestMessage = { sender: 'ai', text: aiResult.response };
