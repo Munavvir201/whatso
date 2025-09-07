@@ -43,7 +43,12 @@ export async function POST(req: NextRequest) {
             };
             
             // Call webhook
-            const response = await fetch(`http://localhost:3000/api/webhooks/whatsapp/${userId}`, {
+            const webhookUrl = process.env.VERCEL_URL 
+                ? `https://${process.env.VERCEL_URL}/api/webhooks/whatsapp/${userId}`
+                : `http://localhost:3000/api/webhooks/whatsapp/${userId}`;
+            
+            console.log(`📡 Calling webhook: ${webhookUrl}`);
+            const response = await fetch(webhookUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'

@@ -73,11 +73,23 @@ async function processMessageAsync(userId: string, message: any, contact: any) {
                 return;
             }
 
-            // Fetch conversation history
-            console.log('\n🔥 [AI-HISTORY] 📜 Fetching conversation history...');
-            const conversationHistory = await getConversationHistory(userId, from);
-            console.log(`🔥 [AI-HISTORY] Retrieved conversation history (${conversationHistory.length} chars):`);
-            console.log(`🔥 [AI-HISTORY] History content: ${conversationHistory}`);
+            // Small delay to ensure Firestore write consistency
+            console.log('\n🔥 [AI-HISTORY] ⏳ Waiting 500ms for Firestore consistency...');
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Fetch conversation history (excluding current message)
+            console.log('🔥 [AI-HISTORY] 📜 Fetching conversation history...');
+            const pastHistory = await getConversationHistory(userId, from);
+            
+            // Add current message to history for complete context
+            const currentMessageLine = `Customer: ${contentForAi}`;
+            const conversationHistory = pastHistory === "No previous conversation history." 
+                ? currentMessageLine
+                : `${pastHistory}\n${currentMessageLine}`;
+                
+            console.log(`🔥 [AI-HISTORY] Past history (${pastHistory.length} chars): ${pastHistory}`);
+            console.log(`🔥 [AI-HISTORY] Current message: ${currentMessageLine}`);
+            console.log(`🔥 [AI-HISTORY] Complete history (${conversationHistory.length} chars): ${conversationHistory}`);
 
             const trainingContext = settings.trainingData || {};
             const fullTrainingData = `
@@ -449,27 +461,41 @@ async function storeInitialMessage(userId: string, conversationId: string, messa
 }
 
 /**
- * Retrieves the last 10 messages from a conversation for AI context
+ * Retrieves the last 15 messages from a conversation for AI context (excluding very recent ones to avoid race conditions)
  */
 async function getConversationHistory(userId: string, conversationId: string): Promise<string> {
     try {
         const messagesRef = db.collection('userSettings').doc(userId).collection('conversations').doc(conversationId).collection('messages');
-        const messagesSnapshot = await messagesRef.orderBy('timestamp', 'desc').limit(10).get();
+        
+        // Get messages older than 1 second ago to avoid race conditions with current message storage
+        const oneSecondAgo = new Date(Date.now() - 1000);
+        const messagesSnapshot = await messagesRef
+            .where('timestamp', '<', oneSecondAgo)
+            .orderBy('timestamp', 'desc')
+            .limit(15)
+            .get();
+        
+        console.log(`🔥 [HISTORY-DEBUG] Found ${messagesSnapshot.docs.length} historical messages`);
         
         if (messagesSnapshot.empty) {
+            console.log(`🔥 [HISTORY-DEBUG] No historical messages found`);
             return "No previous conversation history.";
         }
         
-        const messages = messagesSnapshot.docs.reverse().map(doc => {
+        const messages = messagesSnapshot.docs.reverse().map((doc, index) => {
             const data = doc.data();
             const sender = data.sender === 'customer' ? 'Customer' : 'Agent';
             const content = data.content || `[${data.type} message]`;
+            const timestamp = data.timestamp?.toDate?.() || 'unknown time';
+            console.log(`🔥 [HISTORY-DEBUG] Message ${index + 1}: ${sender} at ${timestamp} - "${content}"`);
             return `${sender}: ${content}`;
         });
         
-        return messages.join('\n');
+        const historyText = messages.join('\n');
+        console.log(`🔥 [HISTORY-DEBUG] Final history text: "${historyText}"`);
+        return historyText;
     } catch (error) {
-        console.error('Error fetching conversation history:', error);
+        console.error('🔥 [HISTORY-ERROR] Error fetching conversation history:', error);
         return "Error retrieving conversation history.";
     }
 }
